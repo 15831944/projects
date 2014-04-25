@@ -1,5 +1,6 @@
 #ifndef COMPLETIONPORTSER_INITNETWORKEN_HEAD
 #define COMPLETIONPORTSER_INITNETWORKEN_HEAD
+
 #include <WinSock2.h>
 #include <Windows.h>
 #pragma comment(lib, "WS2_32")
@@ -17,7 +18,7 @@ public:
 			exit(0);
 		}
 	}
-	
+
 	~CInitSock()
 	{
 		WSACleanup();
