@@ -6,8 +6,8 @@ CIOCPSer::CIOCPSer()
 : m_bServerStarted(false)
 , m_wPort(LISTENPORT)
 , m_nMaxConnections(MAXCONNECTEDCOUNT)
-, m_nMaxFreeBuffers(200)
-, m_nMaxFreeContexts(200)
+, m_nMaxFreeBuffers(MAXFREEBUFFER)
+, m_nMaxFreeContexts(MAXFREECONTEXT)
 , m_nInitialReads(4)
 , m_sListen(INVALID_SOCKET)
 , m_lpfnAcceptEx(NULL)
@@ -15,6 +15,8 @@ CIOCPSer::CIOCPSer()
 , m_hListenThread(NULL)
 , m_pFreeBufferList(NULL)
 , m_pFreeContextList(NULL)
+, m_unFreeBufferCount(0)
+, m_unFreeContextCount(0)
 {
 	m_hAcceptEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  //no manually reset and nonsignal
 	DWORD error_code = GetLastError();
@@ -158,16 +160,17 @@ PCIOCPBuffer CIOCPSer::AllocIOBuffer(int bufLen/* = MAXIOBUFFERSIZE*/)
 	}
 
 	PCIOCPBuffer IOPer = NULL;
-	if (m_pFreeBufferList)
+	if (NULL == m_pFreeBufferList)   //实际分配
 	{
-		IOPer =(PCIOCPBuffer)malloc(sizeof(PCIOCPBuffer) + bufLen);
-		memset(IOPer, 0x0, sizeof(PCIOCPBuffer) + bufLen);
+		IOPer =(PCIOCPBuffer)malloc(sizeof(CIOCPBuffer) + bufLen);
+		memset(IOPer, 0x0, sizeof(CIOCPBuffer) + bufLen);
 	}
-	else
+	else                         //从链表中分配
 	{
-		IOPer = m_pFreeContextList;
-		m_pFreeContextList = m_pFreeContextList->pNext;
+		IOPer = m_pFreeBufferList;
+		m_pFreeBufferList = m_pFreeBufferList->pBuffer;
 		IOPer->pBuffer     = NULL;
+		--m_pFreeBufferList;
 	}
 
 	if (NULL != IOPer)
@@ -181,12 +184,17 @@ PCIOCPBuffer CIOCPSer::AllocIOBuffer(int bufLen/* = MAXIOBUFFERSIZE*/)
 
 void CIOCPSer::FreeIOBuffer(PCIOCPBuffer pIOBuf)
 {
-	if (PCIOCPBuffer)
+	if (pIOBuf)
 	{
-		if (m_nMaxFreeBuffers < MAXFREEBUFFER)
+		if (m_unFreeBufferCount < MAXFREEBUFFER)  //加入到空闲IOBuffer链表当中去
 		{
+			memset(pIOBuf, 0x0, sizeof(CIOCPBuffer) + pIOBuf->buffLen);
+			pIOBuf->pBuffer = m_pFreeBufferList;
+			m_pFreeBufferList = pIOBuf;
+
+			++m_unFreeBufferCount;
 		}
-		else
+		else    //真正的释放空间
 		{
 			free(pIOBuf);
 		}
@@ -195,8 +203,88 @@ void CIOCPSer::FreeIOBuffer(PCIOCPBuffer pIOBuf)
 
 void CIOCPSer::FreeAllIOBuffer()
 {
+	PCIOCPBuffer pTmpBuffer = NULL;
+	while(m_pFreeBufferList)
+	{
+		pTmpBuffer = m_pFreeBufferList;
+		m_pFreeBufferList = m_pFreeBufferList->pBuffer;
+		free(pTmpBuffer);
+	}
 
+	m_unFreeBufferCount = 0;
 }
+
+
+PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s)
+{
+	if(INVALID_SOCKET == s)
+	{
+		if(logger::CLogger::CanPrint())
+			logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "do not return IOCPContext!!!\n");
+		return NULL;
+	}
+
+	PCIOCPContext pConntext = NULL;
+	if (NULL == m_pFreeContextList)
+	{
+		pConntext = (PCIOCPContext)malloc(sizeof(CIOCPContext));
+		memset(pConntext, 0x0, sizeof(CIOCPContext));
+	}
+	else
+	{
+		pConntext = m_pFreeContextList;
+		m_pFreeContextList = m_pFreeContextList->pNext;
+		pConntext = NULL;
+		--m_unFreeContextCount;
+	}
+
+	if(pConntext) 
+	{ 
+		pConntext->s = s;
+	}
+
+	return pConntext;
+}
+
+
+void CIOCPSer::FreeContextPer(PCIOCPContext pContextPer)
+{
+	if (pContextPer)
+	{
+
+		if (m_unFreeContextCount < MAXFREECONTEXT)
+		{
+			memset(pContextPer, 0x0, sizeof(CIOCPContext));
+			pContextPer->pNext = m_pFreeContextList;
+			m_pFreeContextList = pContextPer;
+
+			++m_unFreeContextCount;
+		}
+		else  //真正的释放空间
+		{
+			free(pContextPer);
+		}
+	}
+}
+
+void CIOCPSer::FreeAllContextPer()
+{
+	PCIOCPContext pTmpContext = NULL;
+	while(m_pFreeContextList)
+	{
+		pTmpContext = m_pFreeContextList;
+		m_pFreeContextList = m_pFreeContextList->pNext;
+		free(pTmpContext);
+	}
+
+	m_unFreeContextCount = 0;
+}
+
+
+
+
+
+
 
 
 unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
@@ -219,6 +307,5 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 
 unsigned int _stdcall CIOCPSer::ListenWorkThread()
 {
-
-	
+	return 0;	
 }
