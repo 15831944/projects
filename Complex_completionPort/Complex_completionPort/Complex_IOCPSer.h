@@ -44,6 +44,10 @@ private:
 	void FreeContextPer(PCIOCPContext pContextPer);
 	void FreeAllContextPer();
 
+	BOOL AddConnected(PCIOCPContext pContext);
+	void CloseConnected(PCIOCPContext pContext);
+	void CloseAllConnected();
+
 
 
 private:
@@ -62,13 +66,22 @@ private:
 	 HANDLE m_hAcceptEvent;  
 
 
+	 //handle-per and I/O-per 内存管理链表相关变量
 	 PCIOCPBuffer  m_pFreeBufferList;
 	 PCIOCPContext m_pFreeContextList;
 	 unsigned int  m_unFreeBufferCount;
 	 unsigned int  m_unFreeContextCount;
+	 CRITICAL_SECTION m_csFreeBufferListLock;
+	 CRITICAL_SECTION m_csFreeContextListLock;
+
+	 //连接链表
+	 PCIOCPContext m_pConnectedList;    // 已经连接的句柄对象链表
+	 unsigned int  m_unCurrentConnectedCount;
+	 CRITICAL_SECTION m_csConnectedListLock;
+
 	 
 
-	HANDLE m_hListenThread;
+	HANDLE m_hListenThread;   //监听线程的句柄
 
 	 LPFN_ACCEPTEX m_lpfnAcceptEx;	
 	 LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExSockaddrs; 

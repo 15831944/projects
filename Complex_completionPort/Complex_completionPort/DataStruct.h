@@ -1,6 +1,13 @@
 //per-IO
 #include <WinSock2.h>
 #include <Windows.h>
+
+enum ESocketStatu
+{
+	InitSocke = 1,
+	Close     = 2,
+	Open      = 3
+};
 typedef struct _tagCIOCPBuffer
 {
 	WSAOVERLAPPED ol;
@@ -65,7 +72,7 @@ typedef struct _tagCIOCPContext
 	ULONG nCurrentReadSequence;		// 当前要读的序列号
 	PCIOCPBuffer pOutOfOrderReads;	// 记录没有按顺序完成的读I/O
 
-	CRITICAL_SECTION Lock;			// 保护这个结构
+	//CRITICAL_SECTION Lock;			// 保护这个结构
 
 	_tagCIOCPContext *pNext;
 
@@ -75,7 +82,7 @@ typedef struct _tagCIOCPContext
 		memset(&addrRemote, 0x0, sizeof(SOCKADDR_IN));
 
 		s = INVALID_SOCKET;
-		bClosing = TRUE;
+		bClosing = FALSE;
 		nOutstandingRecv     = 0;
 		nOutstandingSend     = 0;
 		nReadSequence        = 0;

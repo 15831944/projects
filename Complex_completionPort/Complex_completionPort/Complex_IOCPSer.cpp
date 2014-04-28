@@ -15,13 +15,19 @@ CIOCPSer::CIOCPSer()
 , m_hListenThread(NULL)
 , m_pFreeBufferList(NULL)
 , m_pFreeContextList(NULL)
+, m_pConnectedList(NULL)
 , m_unFreeBufferCount(0)
 , m_unFreeContextCount(0)
+,  m_unCurrentConnectedCount(0)
 {
 	m_hAcceptEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  //no manually reset and nonsignal
 	DWORD error_code = GetLastError();
 	if(logger::CLogger::CanPrint())
 		logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create AcceptEvent is error !!!\n");
+
+	InitializeCriticalSection(&m_csFreeContextListLock);
+	InitializeCriticalSection(&m_csFreeBufferListLock);
+	InitializeCriticalSection(&m_csConnectedListLock);
 
 
 }
@@ -48,6 +54,10 @@ CIOCPSer::~CIOCPSer()
 
 	FreeAllIOBuffer();
 	FreeAllContextPer();
+
+	DeleteCriticalSection(&m_csFreeBufferListLock);
+	DeleteCriticalSection(&m_csFreeContextListLock);
+	DeleteCriticalSection(&m_csConnectedListLock);
 }
 
 bool CIOCPSer::StartSer(WORD wPort /* = 4567 */, unsigned int nMaxConnections /* = 2000 */, unsigned int nMaxFreeBuffers /* = 200 */, 
@@ -160,6 +170,7 @@ PCIOCPBuffer CIOCPSer::AllocIOBuffer(int bufLen/* = MAXIOBUFFERSIZE*/)
 	}
 
 	PCIOCPBuffer IOPer = NULL;
+	EnterCriticalSection(&m_csFreeBufferListLock);
 	if (NULL == m_pFreeBufferList)   //实际分配
 	{
 		IOPer =(PCIOCPBuffer)malloc(sizeof(CIOCPBuffer) + bufLen);
@@ -172,6 +183,7 @@ PCIOCPBuffer CIOCPSer::AllocIOBuffer(int bufLen/* = MAXIOBUFFERSIZE*/)
 		IOPer->pBuffer     = NULL;
 		--m_pFreeBufferList;
 	}
+	LeaveCriticalSection(&m_csFreeBufferListLock);
 
 	if (NULL != IOPer)
 	{
@@ -186,6 +198,7 @@ void CIOCPSer::FreeIOBuffer(PCIOCPBuffer pIOBuf)
 {
 	if (pIOBuf)
 	{
+		EnterCriticalSection(&m_csFreeBufferListLock);
 		if (m_unFreeBufferCount < MAXFREEBUFFER)  //加入到空闲IOBuffer链表当中去
 		{
 			memset(pIOBuf, 0x0, sizeof(CIOCPBuffer) + pIOBuf->buffLen);
@@ -198,18 +211,21 @@ void CIOCPSer::FreeIOBuffer(PCIOCPBuffer pIOBuf)
 		{
 			free(pIOBuf);
 		}
+		LeaveCriticalSection(&m_csFreeBufferListLock);
 	}
 }
 
 void CIOCPSer::FreeAllIOBuffer()
 {
 	PCIOCPBuffer pTmpBuffer = NULL;
+	EnterCriticalSection(&m_csFreeBufferListLock);
 	while(m_pFreeBufferList)
 	{
 		pTmpBuffer = m_pFreeBufferList;
 		m_pFreeBufferList = m_pFreeBufferList->pBuffer;
 		free(pTmpBuffer);
 	}
+	LeaveCriticalSection(&m_csFreeBufferListLock);
 
 	m_unFreeBufferCount = 0;
 }
@@ -225,6 +241,8 @@ PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s)
 	}
 
 	PCIOCPContext pConntext = NULL;
+
+	EnterCriticalSection(&m_csFreeContextListLock);
 	if (NULL == m_pFreeContextList)
 	{
 		pConntext = (PCIOCPContext)malloc(sizeof(CIOCPContext));
@@ -237,6 +255,7 @@ PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s)
 		pConntext = NULL;
 		--m_unFreeContextCount;
 	}
+	LeaveCriticalSection(&m_csFreeContextListLock);
 
 	if(pConntext) 
 	{ 
@@ -251,7 +270,22 @@ void CIOCPSer::FreeContextPer(PCIOCPContext pContextPer)
 {
 	if (pContextPer)
 	{
+		if (INVALID_SOCKET != pContextPer->s)
+		{
+			closesocket(pContextPer->s);
+			pContextPer->s = INVALID_SOCKET;
+		}
 
+		// 释放此套节字上暂时存放的未按序存放的IO唯一结构
+		PCIOCPBuffer pTmpBuffer = NULL;
+		while(pContextPer->pOutOfOrderReads)
+		{
+			pTmpBuffer = pContextPer->pOutOfOrderReads->pBuffer;
+			FreeIOBuffer(pContextPer->pOutOfOrderReads);
+			pContextPer->pOutOfOrderReads = pTmpBuffer;
+		}
+
+		EnterCriticalSection(&m_csFreeContextListLock);
 		if (m_unFreeContextCount < MAXFREECONTEXT)
 		{
 			memset(pContextPer, 0x0, sizeof(CIOCPContext));
@@ -264,27 +298,81 @@ void CIOCPSer::FreeContextPer(PCIOCPContext pContextPer)
 		{
 			free(pContextPer);
 		}
+		LeaveCriticalSection(&m_csFreeContextListLock);
 	}
 }
 
 void CIOCPSer::FreeAllContextPer()
 {
 	PCIOCPContext pTmpContext = NULL;
+	EnterCriticalSection(&m_csFreeContextListLock);
 	while(m_pFreeContextList)
 	{
 		pTmpContext = m_pFreeContextList;
 		m_pFreeContextList = m_pFreeContextList->pNext;
 		free(pTmpContext);
 	}
-
+	LeaveCriticalSection(&m_csFreeContextListLock);
 	m_unFreeContextCount = 0;
 }
 
+BOOL CIOCPSer::AddConnected(PCIOCPContext pContext)
+{
+	BOOL result = FALSE;
+	if (pContext)
+	{
+		EnterCriticalSection(&m_csConnectedListLock);
+		if ( m_unCurrentConnectedCount < m_nMaxConnections)
+		{
+			pContext->pNext = m_pConnectedList;
+			m_pConnectedList = pContext;
+			++m_unCurrentConnectedCount;
+			result = TRUE;
+		}
+		LeaveCriticalSection(&m_csConnectedListLock);
+	}
+
+	return result;
+}
 
 
+void CIOCPSer::CloseConnected(PCIOCPContext pContext)
+{
+	if (pContext)
+	{
+		EnterCriticalSection(&m_csConnectedListLock);
+		PCIOCPContext pTmpContext = m_pConnectedList;
+		if (pTmpContext == pContext)
+		{
+			m_pConnectedList = pTmpContext->pNext;
+			--m_unCurrentConnectedCount;
+		}
+		else
+		{
+			while(pTmpContext)
+			{
+				if (pTmpContext->pNext == pContext)
+				{
+					pTmpContext->pNext = pTmpContext->pNext->pNext;
+					--m_unCurrentConnectedCount;
+				}
+			}
+		}
+		LeaveCriticalSection(&m_csConnectedListLock);
 
+		if (INVALID_SOCKET != pContext->s)
+		{
+			closesocket(pContext->s);
+			pContext->s = INVALID_SOCKET;
+		}
+		pContext->bClosing = TRUE;
+	}
 
+}
+void CIOCPSer::CloseAllConnected()
+{
 
+}
 
 
 unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
