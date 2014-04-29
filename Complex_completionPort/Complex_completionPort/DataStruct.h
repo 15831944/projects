@@ -62,11 +62,13 @@ typedef struct _tagCIOCPContext
 	SOCKADDR_IN addrLocal;			// 连接的本地地址
 	SOCKADDR_IN addrRemote;			// 连接的远程地址
 
-	BOOL bClosing;					// 套节字是否关闭
+	ESocketStatu eSockState;					// 套节字关闭开启状态
 
 	int nOutstandingRecv;			// 此套节字上抛出的重叠操作的数量
 	int nOutstandingSend;
 
+	int nMaxAsynRecvCount;
+	int nMaxAsynSendCount;
 
 	ULONG nReadSequence;			// 安排给接收的下一个序列号
 	ULONG nCurrentReadSequence;		// 当前要读的序列号
@@ -82,15 +84,20 @@ typedef struct _tagCIOCPContext
 		memset(&addrRemote, 0x0, sizeof(SOCKADDR_IN));
 
 		s = INVALID_SOCKET;
-		bClosing = FALSE;
+		eSockState = InitSocke;
 		nOutstandingRecv     = 0;
 		nOutstandingSend     = 0;
 		nReadSequence        = 0;
 		nCurrentReadSequence = 0;
 		pOutOfOrderReads     = NULL;
+		nMaxAsynRecvCount    = 20;
+		nMaxAsynSendCount    = 20;
 
 		pNext                = NULL;
 	}
+
+	void setMaxAsynSendCnt(int count){nMaxAsynSendCount = count;}
+	void setMaxAsynRecvCnt(int count){nMaxAsynRecvCount = count;}
 
 private:
 	_tagCIOCPContext(const _tagCIOCPContext& );

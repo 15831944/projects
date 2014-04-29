@@ -16,9 +16,12 @@ CIOCPSer::CIOCPSer()
 , m_pFreeBufferList(NULL)
 , m_pFreeContextList(NULL)
 , m_pConnectedList(NULL)
+, m_pPostAcceptBufList(NULL)
 , m_unFreeBufferCount(0)
 , m_unFreeContextCount(0)
-,  m_unCurrentConnectedCount(0)
+, m_unCurrentConnectedCount(0)
+, m_unCuttentPostAcceptBufCount(0)
+, m_unInitAsynAcceptCnt(5)
 {
 	m_hAcceptEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  //no manually reset and nonsignal
 	DWORD error_code = GetLastError();
@@ -28,8 +31,7 @@ CIOCPSer::CIOCPSer()
 	InitializeCriticalSection(&m_csFreeContextListLock);
 	InitializeCriticalSection(&m_csFreeBufferListLock);
 	InitializeCriticalSection(&m_csConnectedListLock);
-
-
+	InitializeCriticalSection(&m_csPostAcceptBufListLock);
 }
 
 CIOCPSer::~CIOCPSer()
@@ -58,6 +60,7 @@ CIOCPSer::~CIOCPSer()
 	DeleteCriticalSection(&m_csFreeBufferListLock);
 	DeleteCriticalSection(&m_csFreeContextListLock);
 	DeleteCriticalSection(&m_csConnectedListLock);
+	DeleteCriticalSection(&m_csPostAcceptBufListLock);
 }
 
 bool CIOCPSer::StartSer(WORD wPort /* = 4567 */, unsigned int nMaxConnections /* = 2000 */, unsigned int nMaxFreeBuffers /* = 200 */, 
@@ -147,14 +150,14 @@ bool CIOCPSer::StartSer(WORD wPort /* = 4567 */, unsigned int nMaxConnections /*
 	if (NULL != m_hAcceptEvent)
 		WSAEventSelect(m_sListen, m_hAcceptEvent, FD_ACCEPT);
 
-	 unsigned int  unThreadID;
-	 m_hListenThread = (HANDLE)_beginthreadex(NULL, 0, ListenWorkThread, this, 0, &unThreadID);
-	 if (NULL == m_hListenThread )
-	 {
-		 if(logger::CLogger::CanPrint())
-			 logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create listen thread funcation is error , exit listen thread funcation!!!\n");
-		 return false;
-	 }
+	unsigned int  unThreadID;
+	m_hListenThread = (HANDLE)_beginthreadex(NULL, 0, ListenWorkThread, this, 0, &unThreadID);
+	if (NULL == m_hListenThread )
+	{
+		if(logger::CLogger::CanPrint())
+			logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create listen thread funcation is error , exit listen thread funcation!!!\n");
+		return false;
+	}
 
 	return true;
 }
@@ -327,6 +330,7 @@ BOOL CIOCPSer::AddConnected(PCIOCPContext pContext)
 			pContext->pNext = m_pConnectedList;
 			m_pConnectedList = pContext;
 			++m_unCurrentConnectedCount;
+			pContext->eSockState = Open;
 			result = TRUE;
 		}
 		LeaveCriticalSection(&m_csConnectedListLock);
@@ -365,15 +369,181 @@ void CIOCPSer::CloseConnected(PCIOCPContext pContext)
 			closesocket(pContext->s);
 			pContext->s = INVALID_SOCKET;
 		}
-		pContext->bClosing = TRUE;
-	}
+		pContext->eSockState = Close;
+		pContext->pNext      = NULL;
 
+		FreeContextPer(pContext);   //句柄唯一数据内存回收？？？？？？？？？？？？？？？？？、、、????
+	}
 }
+
+
+//关闭了链接但是句柄唯一数据未回收，可能会引起内存泄漏的问题？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？
 void CIOCPSer::CloseAllConnected()
 {
+	EnterCriticalSection(&m_csConnectedListLock);
+	PCIOCPContext pTmpContext = m_pConnectedList;
+	while(pTmpContext)
+	{
+		m_pConnectedList = pTmpContext->pNext;
 
+		if (INVALID_SOCKET != pTmpContext->s)
+		{
+			closesocket(pTmpContext->s);
+			pTmpContext->s = INVALID_SOCKET;
+		}
+		pTmpContext->eSockState = Close;
+		pTmpContext->pNext      = NULL;
+
+		FreeContextPer(pTmpContext);           //用于内存的回收管理（更改上面提出的bug）
+
+		pTmpContext = m_pConnectedList;
+	}
+	LeaveCriticalSection(&m_csConnectedListLock);
+
+	m_unCurrentConnectedCount = 0;
+	m_pConnectedList          = NULL;
 }
 
+BOOL CIOCPSer::AddPendingAccept(PCIOCPBuffer pIOBuffer)
+{
+	BOOL bResult = FALSE;
+
+	if (pIOBuffer)
+	{
+		EnterCriticalSection(&m_csPostAcceptBufListLock);
+		if (m_pPostAcceptBufList)
+		{
+			pIOBuffer->pBuffer = m_pPostAcceptBufList;
+			m_pPostAcceptBufList = pIOBuffer;
+
+		}
+		else
+		{
+			m_pPostAcceptBufList = pIOBuffer;
+			pIOBuffer->pBuffer = NULL;
+		}
+		bResult = TRUE;
+		LeaveCriticalSection(&m_csPostAcceptBufListLock);
+	}
+
+	if (bResult)
+		++m_unCuttentPostAcceptBufCount;
+
+	return bResult;
+}
+
+
+BOOL CIOCPSer::RemovePendingAccept(PCIOCPBuffer pIOBuffer)
+{
+	BOOL bResult = FALSE;
+	if (pIOBuffer)
+	{
+		EnterCriticalSection(&m_csPostAcceptBufListLock);
+		if (pIOBuffer == m_pPostAcceptBufList)
+		{
+			m_pPostAcceptBufList = m_pFreeBufferList->pBuffer;
+			bResult = TRUE;
+		}
+		else
+		{
+			PCIOCPBuffer pTmpBuf = m_pPostAcceptBufList;
+			while(pTmpBuf != NULL && pTmpBuf->pBuffer != pIOBuffer)
+				pTmpBuf = pTmpBuf->pBuffer;
+			
+			if (pTmpBuf)
+			{
+				pTmpBuf->pBuffer = pIOBuffer->pBuffer;
+				bResult = TRUE;
+
+			}
+		}
+		LeaveCriticalSection(&m_csPostAcceptBufListLock);
+	}
+
+	if(bResult)
+		--m_unCuttentPostAcceptBufCount;
+
+	return bResult;
+}
+
+
+
+BOOL CIOCPSer::PostAccept(PCIOCPBuffer pBuffer)
+{
+	BOOL bResult = FALSE;
+	if (pBuffer)
+	{
+		pBuffer->nOperation = OP_ACCEPT;
+
+		pBuffer->sClient = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+
+		DWORD dwBytes = 0;
+		BOOL b = m_lpfnAcceptEx(m_sListen, 
+								pBuffer->sClient, 
+								pBuffer->buff, 
+								pBuffer->buffLen - ((sizeof(sockaddr_in) + 16) * 2),
+								sizeof(sockaddr_in) + 16,
+								sizeof(sockaddr_in) + 16,
+								&dwBytes,
+								&pBuffer->ol);
+
+		if ((!b && WSA_IO_PENDING == WSAGetLastError()) || b)
+			bResult = TRUE;
+	}
+
+	return bResult;
+}
+
+BOOL CIOCPSer::PostSend(PCIOCPContext pContext, PCIOCPBuffer pBuffer)
+{
+	BOOL bResult = FALSE;
+	if (pBuffer && pContext)
+	{
+		if (pContext->nMaxAsynSendCount > pContext->nOutstandingSend)
+		{
+			pBuffer->nOperation = OP_WRITE;
+			DWORD dwBytes;
+			DWORD dwFlags = 0;
+			WSABUF buf;
+			buf.buf = pBuffer->buff;
+			buf.len = pBuffer->buffLen;
+			int nConut = WSASend(pContext->s, &buf, 1, &dwBytes, dwFlags, &pBuffer->ol, NULL);
+			if (SOCKET_ERROR != nConut || (SOCKET_ERROR == nConut && WSAGetLastError() == WSA_IO_PENDING))
+				bResult = TRUE;
+		}
+	}
+
+	if (bResult)
+		++pContext->nOutstandingSend;
+
+	return bResult;
+}
+
+BOOL CIOCPSer::PostRecv(PCIOCPContext pContext, PCIOCPBuffer pBuffer)
+{
+	BOOL bResult = FALSE;
+	if (pBuffer && pContext)
+	{
+		if(pContext->nMaxAsynRecvCount > pContext->nOutstandingRecv)
+		{
+			pBuffer->nOperation = OP_READ;
+			DWORD dwBytes;
+			DWORD dwFlags = 0;
+			WSABUF buf;
+			buf.buf = pBuffer->buff;
+			buf.len = pBuffer->buffLen;
+
+			int nCount = WSARecv(pContext->s, &buf, 1, &dwBytes, &dwFlags, &pBuffer->ol, NULL);
+			if (SOCKET_ERROR != nCount || (SOCKET_ERROR == nCount && WSAGetLastError() == WSA_IO_PENDING))
+				bResult = TRUE;
+		}
+	}
+
+	if (bResult)
+		++pContext->nOutstandingRecv;
+
+	return bResult;
+}
 
 unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 {
@@ -383,7 +553,7 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 		if(NULL == pThis)
 		{
 			if(logger::CLogger::CanPrint())
-				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run listen thread funcation is error , exit listen thread funcation!!!\n");
+				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run listen thread funcation is error 1, exit listen thread funcation!!!\n");
 			break;
 		}
 
@@ -393,7 +563,76 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 	return 0;
 }
 
+/*任务：(1)预投递m_unInitAsynAcceptCnt个异步accept请求
+		(2)开辟工作线程
+		(3)
+*/
 unsigned int _stdcall CIOCPSer::ListenWorkThread()
 {
+
+	PCIOCPBuffer pBuffer;
+	for(unsigned int i = 0; i < m_unInitAsynAcceptCnt; ++i)
+	{
+		pBuffer = AllocIOBuffer();
+		if(NULL == pBuffer)
+		{
+			if(logger::CLogger::CanPrint())
+				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run listen thread funcation is error 0 , exit listen thread funcation!!!\n");
+			return -1;
+		}
+		AddPendingAccept(pBuffer);
+		PostAccept(pBuffer);
+	}
+
+	HANDLE hWaitEvvents[2 + MAXWORKTHREADNUM];
+	int nEventNum = 0;
+	hWaitEvvents[nEventNum ++] = m_hAcceptEvent;
+
+	for(unsigned int i = 0; i < m_unInitWorkThreadCnt; ++i)
+	{
+		hWaitEvvents[nEventNum ++] = (HANDLE)_beginthreadex(NULL, 0, WorkThread, (void *)this, 0, NULL);
+	}
+
+	while(TRUE)
+	{
+		DWORD dwWaitResult = WaitForMultipleObjects(nEventNum, hWaitEvvents, FALSE, 60 * 1000);
+
+		if(WAIT_FAILED == dwWaitResult || m_bShutDown)
+		{
+
+		}
+		else if(WAIT_TIMEOUT == dwWaitResult)
+		{
+
+		}
+		else
+		{
+
+		}
+	}
+
 	return 0;	
+}
+
+unsigned int _stdcall CIOCPSer::WorkThread(LPVOID param)
+{
+	do 
+	{
+		CIOCPSer *pThis = reinterpret_cast<CIOCPSer *>(param);
+		if(NULL == pThis)
+		{
+			if(logger::CLogger::CanPrint())
+				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run work thread funcation is error , exit listen thread funcation!!!\n");
+			break;
+		}
+
+		return pThis->WorkThread();
+	} while (false);
+
+	return 0;
+}
+
+unsigned int _stdcall CIOCPSer::WorkThread()
+{
+	return 0;
 }
