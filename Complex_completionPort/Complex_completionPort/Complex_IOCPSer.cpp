@@ -3,25 +3,25 @@
 #include "SocketWrap.h"
 
 CIOCPSer::CIOCPSer()
-: m_bServerStarted(false)
-, m_wPort(LISTENPORT)
-, m_nMaxConnections(MAXCONNECTEDCOUNT)
-, m_nMaxFreeBuffers(MAXFREEBUFFER)
-, m_nMaxFreeContexts(MAXFREECONTEXT)
-, m_nInitialReads(4)
-, m_sListen(INVALID_SOCKET)
-, m_lpfnAcceptEx(NULL)
-, m_lpfnGetAcceptExSockaddrs(NULL)
-, m_hListenThread(NULL)
-, m_pFreeBufferList(NULL)
-, m_pFreeContextList(NULL)
-, m_pConnectedList(NULL)
-, m_pPostAcceptBufList(NULL)
-, m_unFreeBufferCount(0)
-, m_unFreeContextCount(0)
-, m_unCurrentConnectedCount(0)
-, m_unCuttentPostAcceptBufCount(0)
-, m_unInitAsynAcceptCnt(5)
+	: m_bServerStarted(false)
+	, m_wPort(LISTENPORT)
+	, m_nMaxConnections(MAXCONNECTEDCOUNT)
+	, m_nMaxFreeBuffers(MAXFREEBUFFER)
+	, m_nMaxFreeContexts(MAXFREECONTEXT)
+	, m_nInitialReads(4)
+	, m_sListen(INVALID_SOCKET)
+	, m_lpfnAcceptEx(NULL)
+	, m_lpfnGetAcceptExSockaddrs(NULL)
+	, m_hListenThread(NULL)
+	, m_pFreeBufferList(NULL)
+	, m_pFreeContextList(NULL)
+	, m_pConnectedList(NULL)
+	, m_pPostAcceptBufList(NULL)
+	, m_unFreeBufferCount(0)
+	, m_unFreeContextCount(0)
+	, m_unCurrentConnectedCount(0)
+	, m_unCuttentPostAcceptBufCount(0)
+	, m_unInitAsynAcceptCnt(5)
 {
 	m_hAcceptEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  //no manually reset and nonsignal
 	DWORD error_code = GetLastError();
@@ -64,7 +64,7 @@ CIOCPSer::~CIOCPSer()
 }
 
 bool CIOCPSer::StartSer(WORD wPort /* = 4567 */, unsigned int nMaxConnections /* = 2000 */, unsigned int nMaxFreeBuffers /* = 200 */, 
-						unsigned int nMaxFreeContexts /* = 100 */, unsigned int nInitialReads /* = 4 */)
+	unsigned int nMaxFreeContexts /* = 100 */, unsigned int nInitialReads /* = 4 */)
 {
 	if (m_bServerStarted)
 		return true;
@@ -449,7 +449,7 @@ BOOL CIOCPSer::RemovePendingAccept(PCIOCPBuffer pIOBuffer)
 			PCIOCPBuffer pTmpBuf = m_pPostAcceptBufList;
 			while(pTmpBuf != NULL && pTmpBuf->pBuffer != pIOBuffer)
 				pTmpBuf = pTmpBuf->pBuffer;
-			
+
 			if (pTmpBuf)
 			{
 				pTmpBuf->pBuffer = pIOBuffer->pBuffer;
@@ -479,13 +479,13 @@ BOOL CIOCPSer::PostAccept(PCIOCPBuffer pBuffer)
 
 		DWORD dwBytes = 0;
 		BOOL b = m_lpfnAcceptEx(m_sListen, 
-								pBuffer->sClient, 
-								pBuffer->buff, 
-								pBuffer->buffLen - ((sizeof(sockaddr_in) + 16) * 2),
-								sizeof(sockaddr_in) + 16,
-								sizeof(sockaddr_in) + 16,
-								&dwBytes,
-								&pBuffer->ol);
+			pBuffer->sClient, 
+			pBuffer->buff, 
+			pBuffer->buffLen - ((sizeof(sockaddr_in) + 16) * 2),
+			sizeof(sockaddr_in) + 16,
+			sizeof(sockaddr_in) + 16,
+			&dwBytes,
+			&pBuffer->ol);
 
 		if ((!b && WSA_IO_PENDING == WSAGetLastError()) || b)
 			bResult = TRUE;
@@ -564,8 +564,8 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 }
 
 /*任务：(1)预投递m_unInitAsynAcceptCnt个异步accept请求
-		(2)开辟工作线程
-		(3)
+(2)开辟工作线程
+(3)
 */
 unsigned int _stdcall CIOCPSer::ListenWorkThread()
 {
@@ -597,16 +597,38 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 	{
 		DWORD dwWaitResult = WaitForMultipleObjects(nEventNum, hWaitEvvents, FALSE, 60 * 1000);
 
-		if(WAIT_FAILED == dwWaitResult || m_bShutDown)
+		if(WAIT_FAILED == dwWaitResult || m_bShutDown)  //收到关闭服务通知或发生了异常
 		{
+			CloseAllConnected();
+			Sleep(1000);
 
+			closesocket(m_sListen);
+			m_sListen = INVALID_SOCKET;
+
+			for (unsigned int i = 2; i < m_unInitWorkThreadCnt; ++i)
+			{
+				PostQueuedCompletionStatus(m_hCompletion, -1, 0, NULL);
+			}
+
+			WaitForMultipleObjects(m_unInitWorkThreadCnt, &hWaitEvvents[2], TRUE, 5 * 1000);
+			for (unsigned int i = 2; i < m_unInitWorkThreadCnt; ++i)
+			{
+				CloseHandle(hWaitEvvents[i]);
+			}
+
+			CloseHandle(m_hCompletion);
+			FreeAllIOBuffer();
+			FreeAllContextPer();
+			break;
 		}
-		else if(WAIT_TIMEOUT == dwWaitResult)
+		else if(WAIT_TIMEOUT == dwWaitResult)    //发生超时，检查是否有恶意连接
 		{
-
+			CheckAndGoAwayViciousLink();
 		}
 		else
 		{
+			dwWaitResult = dwWaitResult - WAIT_OBJECT_0;
+
 
 		}
 	}
@@ -635,4 +657,42 @@ unsigned int _stdcall CIOCPSer::WorkThread(LPVOID param)
 unsigned int _stdcall CIOCPSer::WorkThread()
 {
 	return 0;
+}
+
+BOOL CIOCPSer::CheckAndGoAwayViciousLink()
+{
+	BOOL bResult = FALSE;
+	do 
+	{
+		PCIOCPBuffer pIOBuffer = m_pPostAcceptBufList;
+		while(pIOBuffer)
+		{
+			int nSeconds;
+			int nLen = sizeof(nSeconds);
+			int nResult = getsockopt(pIOBuffer->sClient, SOL_SOCKET, SO_CONNECT_TIME, (char *)&nSeconds, &nLen);
+
+			if(!nResult)
+			{
+				if (nSeconds != -1 && nSeconds > 120)
+				{
+					closesocket(pIOBuffer->sClient);
+					pIOBuffer->sClient = INVALID_SOCKET;
+					RemovePendingAccept(pIOBuffer);
+					FreeIOBuffer(pIOBuffer);
+				}
+
+				bResult = TRUE;
+			}
+
+			pIOBuffer = pIOBuffer->pBuffer;
+		}
+
+	} while (false);
+
+	if (!bResult)
+	{
+		if(logger::CLogger::CanPrint())
+			logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "check vicious link is error!!!\n");
+	}
+	return bResult;
 }

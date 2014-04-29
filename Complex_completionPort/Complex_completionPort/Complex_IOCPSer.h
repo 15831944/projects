@@ -36,6 +36,8 @@ public:
 	void SetInitWorkThreadCnt(unsigned int count){m_unInitWorkThreadCnt = (count > MAXWORKTHREADNUM ? MAXWORKTHREADNUM : count);}
 private:
 
+	BOOL CheckAndGoAwayViciousLink();
+
 	//监听线程处理函数
 	static unsigned int _stdcall ListenWorkThread(LPVOID param);
 	unsigned int _stdcall ListenWorkThread();
