@@ -5,16 +5,18 @@
 enum ESocketStatu
 {
 	InitSocke = 1,
-	Close     = 2,
-	Open      = 3
+	CloseSock     = 2,
+	OpenSock     = 3
 };
+
+//I/O-per
 typedef struct _tagCIOCPBuffer
 {
 	WSAOVERLAPPED ol;
 
 	SOCKET sClient;   //AcceptEx recv client socket
 
-	ULONG  nSequenceNum;  //???????????
+	ULONG  nSequenceNum;  //???????????(暂时没有使用)
 
 	char *buff;   //这个buff所指的内存区必须紧跟此结构体之后
 	int  buffLen;
@@ -54,7 +56,7 @@ private:
 
 
 
-// 这是per-Handle数据。它包含了一个套节字的信息
+//Handle-per数据。它包含了一个套节字的信息
 typedef struct _tagCIOCPContext
 {
 	SOCKET s;						// 套节字句柄
@@ -90,8 +92,8 @@ typedef struct _tagCIOCPContext
 		nReadSequence        = 0;
 		nCurrentReadSequence = 0;
 		pOutOfOrderReads     = NULL;
-		nMaxAsynRecvCount    = 20;
-		nMaxAsynSendCount    = 20;
+		nMaxAsynRecvCount    = 200;
+		nMaxAsynSendCount    = 200;
 
 		pNext                = NULL;
 	}

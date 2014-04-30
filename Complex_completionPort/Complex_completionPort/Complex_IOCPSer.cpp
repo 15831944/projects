@@ -13,6 +13,9 @@ CIOCPSer::CIOCPSer()
 	, m_lpfnAcceptEx(NULL)
 	, m_lpfnGetAcceptExSockaddrs(NULL)
 	, m_hListenThread(NULL)
+	, m_hAcceptEvent(NULL)
+	, m_hRepostEvent(NULL)
+	, m_hShutDownEvent(NULL)
 	, m_pFreeBufferList(NULL)
 	, m_pFreeContextList(NULL)
 	, m_pConnectedList(NULL)
@@ -24,9 +27,17 @@ CIOCPSer::CIOCPSer()
 	, m_unInitAsynAcceptCnt(5)
 {
 	m_hAcceptEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  //no manually reset and nonsignal
-	DWORD error_code = GetLastError();
 	if(logger::CLogger::CanPrint())
 		logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create AcceptEvent is error !!!\n");
+
+	m_hRepostEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	if(logger::CLogger::CanPrint())
+		logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create RepostEvent is error !!!\n");
+
+	m_hShutDownEvent =  CreateEvent(NULL, FALSE, FALSE, NULL);
+	if(logger::CLogger::CanPrint())
+		logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create shutdownEvent is error !!!\n");
+
 
 	InitializeCriticalSection(&m_csFreeContextListLock);
 	InitializeCriticalSection(&m_csFreeBufferListLock);
@@ -46,6 +57,18 @@ CIOCPSer::~CIOCPSer()
 	{
 		CloseHandle(m_hAcceptEvent);
 		m_hAcceptEvent = NULL;
+	}
+
+	if (NULL != m_hRepostEvent)
+	{
+		CloseHandle(m_hRepostEvent);
+		m_hRepostEvent = NULL;
+	}
+
+	if (NULL != m_hShutDownEvent)
+	{
+		CloseHandle(m_hShutDownEvent);
+		m_hShutDownEvent = NULL;
 	}
 
 	if (NULL != m_hListenThread)
@@ -144,7 +167,7 @@ bool CIOCPSer::StartSer(WORD wPort /* = 4567 */, unsigned int nMaxConnections /*
 		return false;
 	}
 
-	CreateIoCompletionPort((HANDLE)m_sListen, m_hCompletion, (DWORD)0, 0);
+	CreateIoCompletionPort((HANDLE)m_sListen, m_hCompletion, (DWORD)0, 0);   //对于监听套接字，我没有传句柄唯一对象？？？？？？？？？？？？？？？
 
 	//如果为null着不注册FD_ACCEPT事件
 	if (NULL != m_hAcceptEvent)
@@ -230,6 +253,7 @@ void CIOCPSer::FreeAllIOBuffer()
 	}
 	LeaveCriticalSection(&m_csFreeBufferListLock);
 
+	m_pFreeBufferList = NULL;
 	m_unFreeBufferCount = 0;
 }
 
@@ -255,13 +279,14 @@ PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s)
 	{
 		pConntext = m_pFreeContextList;
 		m_pFreeContextList = m_pFreeContextList->pNext;
-		pConntext = NULL;
 		--m_unFreeContextCount;
 	}
 	LeaveCriticalSection(&m_csFreeContextListLock);
 
 	if(pConntext) 
 	{ 
+		pConntext->pNext = NULL;
+		pConntext->pOutOfOrderReads = NULL;
 		pConntext->s = s;
 	}
 
@@ -269,7 +294,7 @@ PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s)
 }
 
 
-void CIOCPSer::FreeContextPer(PCIOCPContext pContextPer)
+void CIOCPSer::FreeContextPer(PCIOCPContext pContextPer, bool force/* = false*/)
 {
 	if (pContextPer)
 	{
@@ -289,10 +314,11 @@ void CIOCPSer::FreeContextPer(PCIOCPContext pContextPer)
 		}
 
 		EnterCriticalSection(&m_csFreeContextListLock);
-		if (m_unFreeContextCount < MAXFREECONTEXT)
+		if (m_unFreeContextCount < MAXFREECONTEXT && !force)
 		{
 			memset(pContextPer, 0x0, sizeof(CIOCPContext));
 			pContextPer->pNext = m_pFreeContextList;
+			pContextPer->eSockState = CloseSock;
 			m_pFreeContextList = pContextPer;
 
 			++m_unFreeContextCount;
@@ -313,13 +339,14 @@ void CIOCPSer::FreeAllContextPer()
 	{
 		pTmpContext = m_pFreeContextList;
 		m_pFreeContextList = m_pFreeContextList->pNext;
-		free(pTmpContext);
+		FreeContextPer(pTmpContext, true);
 	}
 	LeaveCriticalSection(&m_csFreeContextListLock);
 	m_unFreeContextCount = 0;
 }
 
-BOOL CIOCPSer::AddConnected(PCIOCPContext pContext)
+
+BOOL CIOCPSer::AddConnectedList(PCIOCPContext pContext)
 {
 	BOOL result = FALSE;
 	if (pContext)
@@ -330,17 +357,17 @@ BOOL CIOCPSer::AddConnected(PCIOCPContext pContext)
 			pContext->pNext = m_pConnectedList;
 			m_pConnectedList = pContext;
 			++m_unCurrentConnectedCount;
-			pContext->eSockState = Open;
+			pContext->eSockState = OpenSock;
 			result = TRUE;
 		}
 		LeaveCriticalSection(&m_csConnectedListLock);
 	}
-
 	return result;
 }
 
 
-void CIOCPSer::CloseConnected(PCIOCPContext pContext)
+/*pContext指向的内存，在外部还需要调用FreeContextPer（pContext）函数*/
+void CIOCPSer::RemoveConnected(PCIOCPContext pContext)
 {
 	if (pContext)
 	{
@@ -353,13 +380,13 @@ void CIOCPSer::CloseConnected(PCIOCPContext pContext)
 		}
 		else
 		{
-			while(pTmpContext)
+			while(pTmpContext && pTmpContext->pNext != pContext)
+				pTmpContext = pTmpContext->pNext;
+			
+			if (pTmpContext)
 			{
-				if (pTmpContext->pNext == pContext)
-				{
-					pTmpContext->pNext = pTmpContext->pNext->pNext;
-					--m_unCurrentConnectedCount;
-				}
+				pTmpContext->pNext = pContext->pNext;
+				--m_unCurrentConnectedCount;
 			}
 		}
 		LeaveCriticalSection(&m_csConnectedListLock);
@@ -369,16 +396,16 @@ void CIOCPSer::CloseConnected(PCIOCPContext pContext)
 			closesocket(pContext->s);
 			pContext->s = INVALID_SOCKET;
 		}
-		pContext->eSockState = Close;
+		pContext->eSockState = CloseSock;
 		pContext->pNext      = NULL;
-
-		FreeContextPer(pContext);   //句柄唯一数据内存回收？？？？？？？？？？？？？？？？？、、、????
+		
+		FreeContextPer(pContext);           //用于内存的回收管理（更改上面提出的bug）如果加了这句话就不需要在外部在次调用了
 	}
 }
 
 
-//关闭了链接但是句柄唯一数据未回收，可能会引起内存泄漏的问题？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？
-void CIOCPSer::CloseAllConnected()
+//关闭了链接但是句柄唯一数据未回收，在函数内部完成了数据的归还给connect链表
+void CIOCPSer::RemoveAllConnected()
 {
 	EnterCriticalSection(&m_csConnectedListLock);
 	PCIOCPContext pTmpContext = m_pConnectedList;
@@ -391,7 +418,7 @@ void CIOCPSer::CloseAllConnected()
 			closesocket(pTmpContext->s);
 			pTmpContext->s = INVALID_SOCKET;
 		}
-		pTmpContext->eSockState = Close;
+		pTmpContext->eSockState = CloseSock;
 		pTmpContext->pNext      = NULL;
 
 		FreeContextPer(pTmpContext);           //用于内存的回收管理（更改上面提出的bug）
@@ -415,7 +442,6 @@ BOOL CIOCPSer::AddPendingAccept(PCIOCPBuffer pIOBuffer)
 		{
 			pIOBuffer->pBuffer = m_pPostAcceptBufList;
 			m_pPostAcceptBufList = pIOBuffer;
-
 		}
 		else
 		{
@@ -454,14 +480,16 @@ BOOL CIOCPSer::RemovePendingAccept(PCIOCPBuffer pIOBuffer)
 			{
 				pTmpBuf->pBuffer = pIOBuffer->pBuffer;
 				bResult = TRUE;
-
 			}
 		}
 		LeaveCriticalSection(&m_csPostAcceptBufListLock);
 	}
 
 	if(bResult)
+	{
+		pIOBuffer->pBuffer = NULL;
 		--m_unCuttentPostAcceptBufCount;
+	}
 
 	return bResult;
 }
@@ -570,23 +598,29 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 unsigned int _stdcall CIOCPSer::ListenWorkThread()
 {
 
-	PCIOCPBuffer pBuffer;
+	PCIOCPBuffer pBuffer = NULL;
 	for(unsigned int i = 0; i < m_unInitAsynAcceptCnt; ++i)
 	{
 		pBuffer = AllocIOBuffer();
 		if(NULL == pBuffer)
 		{
 			if(logger::CLogger::CanPrint())
-				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run listen thread funcation is error 0 , exit listen thread funcation!!!\n");
-			return -1;
+				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "Allocate IOBuffer is fail. exit listen thread funcation!!!\n");
+#ifdef _DEBUG
+			printf("Allocate IOBuffer is fail. exit listen thread funcation\n");
+			OutputDebugStringA("Allocate IOBuffer is fail. exit listen thread funcation！！\n");
+#endif
+			return 0;
 		}
 		AddPendingAccept(pBuffer);
 		PostAccept(pBuffer);
 	}
 
-	HANDLE hWaitEvvents[2 + MAXWORKTHREADNUM];
+	HANDLE hWaitEvvents[3 + MAXWORKTHREADNUM];
 	int nEventNum = 0;
 	hWaitEvvents[nEventNum ++] = m_hAcceptEvent;
+	hWaitEvvents[nEventNum ++] = m_hRepostEvent;
+	hWaitEvvents[nEventNum ++] = m_hShutDownEvent;
 
 	for(unsigned int i = 0; i < m_unInitWorkThreadCnt; ++i)
 	{
@@ -599,19 +633,19 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 
 		if(WAIT_FAILED == dwWaitResult || m_bShutDown)  //收到关闭服务通知或发生了异常
 		{
-			CloseAllConnected();
+			RemoveAllConnected();
 			Sleep(1000);
 
 			closesocket(m_sListen);
 			m_sListen = INVALID_SOCKET;
 
-			for (unsigned int i = 2; i < m_unInitWorkThreadCnt; ++i)
+			for (unsigned int i = 0; i < m_unInitWorkThreadCnt; ++i)
 			{
 				PostQueuedCompletionStatus(m_hCompletion, -1, 0, NULL);
 			}
 
-			WaitForMultipleObjects(m_unInitWorkThreadCnt, &hWaitEvvents[2], TRUE, 5 * 1000);
-			for (unsigned int i = 2; i < m_unInitWorkThreadCnt; ++i)
+			WaitForMultipleObjects(m_unInitWorkThreadCnt, &hWaitEvvents[3], TRUE, 5 * 1000);
+			for (unsigned int i = 3; i < m_unInitWorkThreadCnt + 3; ++i)
 			{
 				CloseHandle(hWaitEvvents[i]);
 			}
@@ -628,35 +662,57 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 		else
 		{
 			dwWaitResult = dwWaitResult - WAIT_OBJECT_0;
+			int nPostAsynAcceptNum = 0;
 
+			if (0 == dwWaitResult)   //m_hAcceptEvent受信
+			{
+				WSANETWORKEVENTS networkObj;
+				WSAEnumNetworkEvents(m_sListen, hWaitEvvents[dwWaitResult], &networkObj);
+				if(networkObj.lNetworkEvents & FD_ACCEPT)
+				{
+					if(0 != networkObj.iErrorCode[FD_ACCEPT_BIT])
+					{
+						m_bShutDown = TRUE;
+						SetEvent(m_hShutDownEvent);
+						continue;
+					}
+					else
+						nPostAsynAcceptNum = 50;
+				}
+			}
+			else if(1 == dwWaitResult)    //m_hRepostEvent受信
+			{
+				nPostAsynAcceptNum = 1;
+			}
+			else                          //某一个线程退出了
+			{
+				m_bShutDown = TRUE;
+				SetEvent(m_hShutDownEvent);
+				continue;
+			}
 
+			//再次投递nPostAsynAcceptNum个accpet
+			while (nPostAsynAcceptNum --)
+			{
+				PCIOCPBuffer pBuffer = AllocIOBuffer();
+				if (pBuffer)
+				{
+					AddPendingAccept(pBuffer);
+					PostAccept(pBuffer);
+				}
+				else
+				{
+					if(logger::CLogger::CanPrint())
+						logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run listen thread funcation is error 0 , exit listen thread funcation!!!\n");
+					
+					m_bShutDown = TRUE;
+					SetEvent(m_hShutDownEvent);
+					break;
+				}
+			}
 		}
 	}
-
 	return 0;	
-}
-
-unsigned int _stdcall CIOCPSer::WorkThread(LPVOID param)
-{
-	do 
-	{
-		CIOCPSer *pThis = reinterpret_cast<CIOCPSer *>(param);
-		if(NULL == pThis)
-		{
-			if(logger::CLogger::CanPrint())
-				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run work thread funcation is error , exit listen thread funcation!!!\n");
-			break;
-		}
-
-		return pThis->WorkThread();
-	} while (false);
-
-	return 0;
-}
-
-unsigned int _stdcall CIOCPSer::WorkThread()
-{
-	return 0;
 }
 
 BOOL CIOCPSer::CheckAndGoAwayViciousLink()
@@ -696,3 +752,27 @@ BOOL CIOCPSer::CheckAndGoAwayViciousLink()
 	}
 	return bResult;
 }
+
+unsigned int _stdcall CIOCPSer::WorkThread(LPVOID param)
+{
+	do 
+	{
+		CIOCPSer *pThis = reinterpret_cast<CIOCPSer *>(param);
+		if(NULL == pThis)
+		{
+			if(logger::CLogger::CanPrint())
+				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run work thread funcation is error , exit work thread funcation!!!\n");
+			break;
+		}
+
+		return pThis->WorkThread();
+	} while (false);
+
+	return 0;
+}
+
+unsigned int _stdcall CIOCPSer::WorkThread()
+{
+	return 0;
+}
+

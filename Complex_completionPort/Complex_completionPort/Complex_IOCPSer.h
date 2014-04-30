@@ -32,6 +32,11 @@ public:
 	bool StartSer(WORD wPort = 4567, unsigned int nMaxConnections = MAXCONNECTEDCOUNT, 
 				  unsigned int nMaxFreeBuffers = 200, unsigned int nMaxFreeContexts = 100, unsigned int nInitialReads = 4);
 
+	/**********************************
+	函 数 功 能：停止服务
+	***********************************/
+	bool StopSer();
+
 	void SetInitPostAsynAcceptCnt(unsigned int count){m_unInitAsynAcceptCnt = count;}
 	void SetInitWorkThreadCnt(unsigned int count){m_unInitWorkThreadCnt = (count > MAXWORKTHREADNUM ? MAXWORKTHREADNUM : count);}
 private:
@@ -47,21 +52,21 @@ private:
 	unsigned int _stdcall WorkThread();
 
 
-	//I/O)_per内存管理相关函数
+	//I/O-per内存管理相关函数
 	PCIOCPBuffer AllocIOBuffer(int bufLen = MAXIOBUFFERSIZE);
 	void FreeIOBuffer(PCIOCPBuffer pIOBuf);
 	void FreeAllIOBuffer();
 
-	//handle_per内存管理相关函数
+	//handle-	per内存管理相关函数
 	PCIOCPContext AllocContextPer(SOCKET s);
-	void FreeContextPer(PCIOCPContext pContextPer);
+	void FreeContextPer(PCIOCPContext pContextPer,  bool force = false);
 	void FreeAllContextPer();
 
 
-	//连接链表管理相关函数
-	BOOL AddConnected(PCIOCPContext pContext);
-	void CloseConnected(PCIOCPContext pContext);
-	void CloseAllConnected();
+	//连接链表管理相关函数(相当于session管理)
+	BOOL AddConnectedList(PCIOCPContext pContext);
+	void RemoveConnected(PCIOCPContext pContext);
+	void RemoveAllConnected();
 
 
 	//投递的异步accept请求的链表管理相关函数
@@ -89,6 +94,8 @@ private:
 	 HANDLE m_hCompletion;
 
 	 HANDLE m_hAcceptEvent;  
+	 HANDLE m_hRepostEvent;
+	 HANDLE m_hShutDownEvent;
 
 
 	 //I/O-per内存管理链表相关变量
