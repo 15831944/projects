@@ -2,6 +2,8 @@
 #include "log/InterfaceLogger.h"
 #include "SocketWrap.h"
 
+#include <stdio.h>
+
 CIOCPSer::CIOCPSer()
 	: m_bServerStarted(false)
 	, m_wPort(LISTENPORT)
@@ -773,6 +775,56 @@ unsigned int _stdcall CIOCPSer::WorkThread(LPVOID param)
 
 unsigned int _stdcall CIOCPSer::WorkThread()
 {
+#ifdef _DEBUG
+	printf("worker thread is starting...");
+#endif
+	CIOCPBuffer *pBuffer;
+	DWORD       dwKey;
+	DWORD       dwTrans;
+	LPOVERLAPPED lpol;
+	while (true)
+	{
+		BOOL bOK = GetQueuedCompletionStatus(m_hCompletion, &dwTrans, (LPDWORD)&dwKey, (LPOVERLAPPED *)&lpol, WSA_INFINITE);
+
+		if (-1 == dwTrans)    //用户通知退出
+		{
+#ifdef _DEBUG
+			printf("workerThread exit because user send exit command!");
+			break;
+#endif
+		}
+
+		pBuffer = CONTAINING_RECORD(lpol, CIOCPBuffer, ol);
+		int nError = NO_ERROR;
+		if (!bOK)    //在此套接字上有错误发生 
+		{
+			SOCKET s;
+			if (OP_ACCEPT == pBuffer->nOperation)
+			{
+				s = m_sListen;
+			}
+			else
+			{
+				if (0 == dwKey)   //????????????
+				{
+					break;
+				}
+				s = ((CIOCPContext *)dwKey)->s;
+			}
+
+			DWORD dwFlags = 0;
+			if (WSAGetOverlappedResult(s, &pBuffer->ol, &dwTrans, FALSE, &dwFlags))
+			{
+				nError = WSAGetLastError();
+			}
+		}
+
+		//handleIO();
+	}
+
+#ifdef _DEBUG
+	printf("work thread is exit!\n");
+#endif
 	return 0;
 }
 
