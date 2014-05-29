@@ -213,21 +213,27 @@ PCIOCPBuffer CIOCPSer::AllocIOBuffer(int bufLen/* = MAXIOBUFFERSIZE*/)
 
 	if (NULL != IOPer)
 	{
-		IOPer->buffLen = bufLen;
+		if (!IOPer->buffLen)
+		{
+			IOPer->buffLen = bufLen;
+		}
 		IOPer->buff    = (char *)(IOPer + 1);
 	}
 
 	return IOPer;
 }
 
-void CIOCPSer::FreeIOBuffer(PCIOCPBuffer pIOBuf)
+void CIOCPSer::FreeIOBuffer(PCIOCPBuffer pIOBuf, bool bForce/* = false*/)
 {
 	if (pIOBuf)
 	{
 		EnterCriticalSection(&m_csFreeBufferListLock);
-		if (m_unFreeBufferCount < MAXFREEBUFFER)  //加入到空闲IOBuffer链表当中去
+		if (m_unFreeBufferCount < MAXFREEBUFFER && !bForce)  //加入到空闲IOBuffer链表当中去
 		{
+			int tmpBufLen = pIOBuf->buffLen;
 			memset(pIOBuf, 0x0, sizeof(CIOCPBuffer) + pIOBuf->buffLen);
+			pIOBuf->buffLen = tmpBufLen;
+
 			pIOBuf->pBuffer = m_pFreeBufferList;
 			m_pFreeBufferList = pIOBuf;
 
@@ -249,7 +255,7 @@ void CIOCPSer::FreeAllIOBuffer()
 	{
 		pTmpBuffer = m_pFreeBufferList;
 		m_pFreeBufferList = m_pFreeBufferList->pBuffer;
-		free(pTmpBuffer);
+		FreeIOBuffer(pTmpBuffer, true);
 	}
 	LeaveCriticalSection(&m_csFreeBufferListLock);
 
@@ -258,7 +264,7 @@ void CIOCPSer::FreeAllIOBuffer()
 }
 
 
-PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s)
+PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s, unsigned int MaxRecvCnt/* = 200*/, unsigned MaxSendCnt/* = 200*/)
 {
 	if(INVALID_SOCKET == s)
 	{
@@ -285,9 +291,12 @@ PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s)
 
 	if(pConntext) 
 	{ 
-		pConntext->pNext = NULL;
-		pConntext->pOutOfOrderReads = NULL;
+		assert(pConntext->pNext != NULL);
+		pConntext->ReturnInitStatus();
+
 		pConntext->s = s;
+		pConntext->SetMaxAsynRecvCnt(MaxRecvCnt);
+		pConntext->SetMaxAsynSendCnt(MaxSendCnt);
 	}
 
 	return pConntext;
@@ -342,6 +351,8 @@ void CIOCPSer::FreeAllContextPer()
 		FreeContextPer(pTmpContext, true);
 	}
 	LeaveCriticalSection(&m_csFreeContextListLock);
+
+	m_pFreeContextList = NULL;
 	m_unFreeContextCount = 0;
 }
 
@@ -399,7 +410,7 @@ void CIOCPSer::RemoveConnected(PCIOCPContext pContext)
 		pContext->eSockState = CloseSock;
 		pContext->pNext      = NULL;
 		
-		FreeContextPer(pContext);           //用于内存的回收管理（更改上面提出的bug）如果加了这句话就不需要在外部在次调用了
+		FreeContextPer(pContext);           //用于内存的回收管理（更改上面提出的bug）如果加了这句话就不需要在外部再次调用了
 	}
 }
 
@@ -499,7 +510,7 @@ BOOL CIOCPSer::RemovePendingAccept(PCIOCPBuffer pIOBuffer)
 BOOL CIOCPSer::PostAccept(PCIOCPBuffer pBuffer)
 {
 	BOOL bResult = FALSE;
-	if (pBuffer)
+	if (pBuffer && m_lpfnAcceptEx)
 	{
 		pBuffer->nOperation = OP_ACCEPT;
 
@@ -591,9 +602,10 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 	return 0;
 }
 
-/*任务：(1)预投递m_unInitAsynAcceptCnt个异步accept请求
+/*任务：
+(1)预投递m_unInitAsynAcceptCnt个异步accept请求
 (2)开辟工作线程
-(3)
+(3)超时检查是否有恶意连接
 */
 unsigned int _stdcall CIOCPSer::ListenWorkThread()
 {

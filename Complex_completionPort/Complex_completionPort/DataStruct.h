@@ -4,9 +4,9 @@
 
 enum ESocketStatu
 {
-	InitSocke = 1,
+	InitSocke = 1,     //第一次malloc的状态
 	CloseSock     = 2,
-	OpenSock     = 3
+	OpenSock     = 3   //已经连接成功后socket的状态
 };
 
 //I/O-per
@@ -64,23 +64,41 @@ typedef struct _tagCIOCPContext
 	SOCKADDR_IN addrLocal;			// 连接的本地地址
 	SOCKADDR_IN addrRemote;			// 连接的远程地址
 
-	ESocketStatu eSockState;					// 套节字关闭开启状态
+	ESocketStatu eSockState;			     // 套节字关闭开启状态
 
-	int nOutstandingRecv;			// 此套节字上抛出的重叠操作的数量
-	int nOutstandingSend;
+	unsigned int nOutstandingRecv;			// 此套节字上抛出的重叠操作的数量
+	unsigned int nOutstandingSend;
 
-	int nMaxAsynRecvCount;
-	int nMaxAsynSendCount;
+	unsigned int nMaxAsynRecvCount;         //最大的异步操作数
+	unsigned int nMaxAsynSendCount;
 
-	ULONG nReadSequence;			// 安排给接收的下一个序列号
-	ULONG nCurrentReadSequence;		// 当前要读的序列号
+	ULONG nReadSequence;			// 安排给接收的下一个序列号    （暂时未使用）
+	ULONG nCurrentReadSequence;		// 当前要读的序列号             （暂时未使用）
 	PCIOCPBuffer pOutOfOrderReads;	// 记录没有按顺序完成的读I/O
 
-	//CRITICAL_SECTION Lock;			// 保护这个结构
+	//CRITICAL_SECTION Lock;			// 保护这个结构  （需重新认真考虑？？？这个肯定是有的）
 
 	_tagCIOCPContext *pNext;
 
-	_tagCIOCPContext()
+	_tagCIOCPContext(unsigned int MaxRecvCount = 200, unsigned int MaxSendCount = 200)
+	{
+		memset(&addrLocal, 0x0, sizeof(SOCKADDR_IN));
+		memset(&addrRemote, 0x0, sizeof(SOCKADDR_IN));
+
+		s = INVALID_SOCKET;
+		eSockState = InitSocke;
+		nOutstandingRecv     = 0;
+		nOutstandingSend     = 0;
+		nReadSequence        = 0;
+		nCurrentReadSequence = 0;
+		pOutOfOrderReads     = NULL;
+		nMaxAsynRecvCount    = MaxRecvCount;
+		nMaxAsynSendCount    = MaxSendCount;
+
+		pNext                = NULL;
+	}
+
+	void ReturnInitStatus()
 	{
 		memset(&addrLocal, 0x0, sizeof(SOCKADDR_IN));
 		memset(&addrRemote, 0x0, sizeof(SOCKADDR_IN));
@@ -98,8 +116,12 @@ typedef struct _tagCIOCPContext
 		pNext                = NULL;
 	}
 
-	void setMaxAsynSendCnt(int count){nMaxAsynSendCount = count;}
-	void setMaxAsynRecvCnt(int count){nMaxAsynRecvCount = count;}
+
+	void SetMaxAsynSendCnt(unsigned int count){nMaxAsynSendCount = count;}
+	void SetMaxAsynRecvCnt(unsigned int count){nMaxAsynRecvCount = count;}
+
+	unsigned GetOutStandingRecvCnt() const{return nOutstandingRecv;}
+	unsigned GetOutStandingSendCnt() const{return nOutstandingSend;}
 
 private:
 	_tagCIOCPContext(const _tagCIOCPContext& );

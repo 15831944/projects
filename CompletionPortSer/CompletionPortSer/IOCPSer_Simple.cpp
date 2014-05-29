@@ -86,7 +86,7 @@ bool CIOCPSerSimple::StartSer()
 			pPerHandle->sockConCli      = sNew;
 			memcpy(&pPerHandle->addr, &remoteAddr, nRemoteLen);
 
-			CreateIoCompletionPort((HANDLE)pPerHandle->sockConCli, m_hcompletion, (DWORD)pPerHandle, 0);
+			CreateIoCompletionPort((HANDLE)pPerHandle->sockConCli, m_hcompletion, (ULONG_PTR)pPerHandle, 0);
 
 			//delivery recv request
 			PPER_IO_DATA pPerIO = new PER_IO_DATA;

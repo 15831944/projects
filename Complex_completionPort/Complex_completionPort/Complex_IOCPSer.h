@@ -54,16 +54,16 @@ private:
 
 	//I/O-per内存管理相关函数
 	PCIOCPBuffer AllocIOBuffer(int bufLen = MAXIOBUFFERSIZE);
-	void FreeIOBuffer(PCIOCPBuffer pIOBuf);
+	void FreeIOBuffer(PCIOCPBuffer pIOBuf, bool bForce = false);
 	void FreeAllIOBuffer();
 
-	//handle-	per内存管理相关函数
-	PCIOCPContext AllocContextPer(SOCKET s);
+	//handle-per内存管理相关函数
+	PCIOCPContext AllocContextPer(SOCKET s, unsigned int MaxRecvCnt = 200, unsigned MaxSendCnt = 200);
 	void FreeContextPer(PCIOCPContext pContextPer,  bool force = false);
 	void FreeAllContextPer();
 
 
-	//连接链表管理相关函数(相当于session管理)
+	//连接链表管理相关函数(相当于session管理), 这里可以单独的写一个session管理类
 	BOOL AddConnectedList(PCIOCPContext pContext);
 	void RemoveConnected(PCIOCPContext pContext);
 	void RemoveAllConnected();
@@ -109,7 +109,7 @@ private:
 	 CRITICAL_SECTION m_csFreeContextListLock;
 
 	 //连接链表管理相关变量
-	 PCIOCPContext m_pConnectedList;    // 已经连接的句柄对象链表
+	 PCIOCPContext m_pConnectedList;    // 已经连接上的句柄对象链表
 	 unsigned int  m_unCurrentConnectedCount;
 	 CRITICAL_SECTION m_csConnectedListLock;
 
