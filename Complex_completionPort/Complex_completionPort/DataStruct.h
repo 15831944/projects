@@ -1,6 +1,11 @@
 //per-IO
+#ifndef COMPLEXCOMPLETIONPORT_DATASTRUCT_HEAD
+#define COMPLEXCOMPLETIONPORT_DATASTRUCT_HEAD 
 #include <WinSock2.h>
 #include <Windows.h>
+#include <assert.h>
+
+class CIOCPSer;
 
 enum ESocketStatu
 {
@@ -12,11 +17,14 @@ enum ESocketStatu
 //I/O-per
 typedef struct _tagCIOCPBuffer
 {
+	friend CIOCPSer;
+
+private:
 	WSAOVERLAPPED ol;
 
 	SOCKET sClient;   //AcceptEx recv client socket
 
-	ULONG  nSequenceNum;  //???????????(暂时没有使用)
+	ULONG  nSequenceNum;  //(暂时没有使用)
 
 	char *buff;   //这个buff所指的内存区必须紧跟此结构体之后
 	int  buffLen;
@@ -29,7 +37,7 @@ typedef struct _tagCIOCPBuffer
 
 	_tagCIOCPBuffer *pBuffer;
 
-	_tagCIOCPBuffer()
+	void InitStruct()
 	{
 		sClient		 = INVALID_SOCKET;
 		nSequenceNum = 0;
@@ -39,16 +47,32 @@ typedef struct _tagCIOCPBuffer
 		pBuffer      = NULL;
 	}
 
-	~_tagCIOCPBuffer()      
+	void ReturnIniStatus()
+	{
+		sClient		 = INVALID_SOCKET;
+		nSequenceNum = 0;
+		buff         = NULL;
+		//buffLen      = 0;
+		nOperation   = OP_UNKNOW;
+		pBuffer      = NULL;
+	}
+
+	void ReleaseStruct()      
 	{
 	/*	if (buff)
 		{
 			free(buff);
 			buff = NULL;
 		}*/
+		//if (NULL != sClient && INVALID_SOCKET != sClient)
+		//{
+		//	closesocket(sClient);
+		//	sClient = NULL;
+		//}
 	}
 
 private:
+	_tagCIOCPBuffer(){}
 	_tagCIOCPBuffer(const _tagCIOCPBuffer& );
 	_tagCIOCPBuffer& operator=(const _tagCIOCPBuffer& ); 
 
@@ -59,6 +83,9 @@ private:
 //Handle-per数据。它包含了一个套节字的信息
 typedef struct _tagCIOCPContext
 {
+	friend CIOCPSer;
+
+private:
 	SOCKET s;						// 套节字句柄
 
 	SOCKADDR_IN addrLocal;			// 连接的本地地址
@@ -76,11 +103,12 @@ typedef struct _tagCIOCPContext
 	ULONG nCurrentReadSequence;		// 当前要读的序列号             （暂时未使用）
 	PCIOCPBuffer pOutOfOrderReads;	// 记录没有按顺序完成的读I/O
 
-	//CRITICAL_SECTION Lock;			// 保护这个结构  （需重新认真考虑？？？这个肯定是有的）
+	CRITICAL_SECTION Lock;			// 保护这个结构，此结构可能被多个线程访问
 
 	_tagCIOCPContext *pNext;
 
-	_tagCIOCPContext(unsigned int MaxRecvCount = 200, unsigned int MaxSendCount = 200)
+public:
+	void InitStruct(unsigned int MaxRecvCount = 200, unsigned int MaxSendCount = 200)
 	{
 		memset(&addrLocal, 0x0, sizeof(SOCKADDR_IN));
 		memset(&addrRemote, 0x0, sizeof(SOCKADDR_IN));
@@ -96,6 +124,22 @@ typedef struct _tagCIOCPContext
 		nMaxAsynSendCount    = MaxSendCount;
 
 		pNext                = NULL;
+
+		InitializeCriticalSection(&Lock);
+	}
+
+	
+
+	void ReleaseStruct()
+	{
+		if(NULL != s && INVALID_SOCKET != s)
+		{
+			closesocket(s);
+			s = NULL;
+		}
+
+		assert(pNext != NULL);
+		DeleteCriticalSection(&Lock);
 	}
 
 	void ReturnInitStatus()
@@ -120,11 +164,16 @@ typedef struct _tagCIOCPContext
 	void SetMaxAsynSendCnt(unsigned int count){nMaxAsynSendCount = count;}
 	void SetMaxAsynRecvCnt(unsigned int count){nMaxAsynRecvCount = count;}
 
-	unsigned GetOutStandingRecvCnt() const{return nOutstandingRecv;}
-	unsigned GetOutStandingSendCnt() const{return nOutstandingSend;}
+//	unsigned GetOutStandingRecvCnt() const{return nOutstandingRecv;}
+//	unsigned GetOutStandingSendCnt() const{return nOutstandingSend;}
 
 private:
+	//确保此类只能通过我的创建函数来创建，不能直接定义对象
+	_tagCIOCPContext(){}   
 	_tagCIOCPContext(const _tagCIOCPContext& );
 	_tagCIOCPContext& operator=(const _tagCIOCPContext& );
 
 }CIOCPContext, *PCIOCPContext;
+
+
+#endif

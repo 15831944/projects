@@ -229,6 +229,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\ErrorCodeDef.h"
+				>
+			</File>
+			<File
 				RelativePath=".\InitNetworkEn.h"
 				>
 			</File>

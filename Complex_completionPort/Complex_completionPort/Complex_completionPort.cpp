@@ -11,7 +11,11 @@ static CInitSock IintNet;
 int _tmain(int argc, _TCHAR* argv[])
 {
 	CIOCPSer test;
-	test.StartSer();
+	unsigned long errorCode = 0;
+	if(!(test.StartSer(errorCode)))
+	{
+		printf("errorCode = %u\n", errorCode);
+	}
 	return 0;
 }
 

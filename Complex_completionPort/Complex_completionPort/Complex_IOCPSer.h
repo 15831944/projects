@@ -1,3 +1,5 @@
+#ifndef COMPLEXCOMPLETIONPORT_COMPLEXIOCPSER_HEAD
+#define COMPLEXCOMPLETIONPORT_COMPLEXIOCPSER_HEAD
 #include "DataStruct.h"
 #include <WinSock2.h>
 #include <Windows.h>
@@ -29,19 +31,17 @@ public:
 	nMaxFreeContexts		允许的最大不用真正释放的句柄唯一数据结构个数
 
 	*************************************/
-	bool StartSer(WORD wPort = 4567, unsigned int nMaxConnections = MAXCONNECTEDCOUNT, 
-				  unsigned int nMaxFreeBuffers = 200, unsigned int nMaxFreeContexts = 100, unsigned int nInitialReads = 4);
+	bool StartSer(unsigned long &errorCode, WORD wPort = LISTENPORT, unsigned int nMaxConnections = MAXCONNECTEDCOUNT, 
+				  unsigned int nMaxFreeBuffers = MAXFREEBUFFER, unsigned int nMaxFreeContexts = MAXFREECONTEXT, unsigned int nInitialReads = 4);
 
 	/**********************************
 	函 数 功 能：停止服务
 	***********************************/
-	bool StopSer();
+	void StopSer();
 
-	void SetInitPostAsynAcceptCnt(unsigned int count){m_unInitAsynAcceptCnt = count;}
+	void SetInitPostAsynAcceptCnt(unsigned int count){m_unInitAsynAcceptCnt = count;}    //此函数在StartSer前调用
 	void SetInitWorkThreadCnt(unsigned int count){m_unInitWorkThreadCnt = (count > MAXWORKTHREADNUM ? MAXWORKTHREADNUM : count);}
 private:
-
-	BOOL CheckAndGoAwayViciousLink();
 
 	//监听线程处理函数
 	static unsigned int _stdcall ListenWorkThread(LPVOID param);
@@ -65,7 +65,7 @@ private:
 
 	//连接链表管理相关函数(相当于session管理), 这里可以单独的写一个session管理类
 	BOOL AddConnectedList(PCIOCPContext pContext);
-	void RemoveConnected(PCIOCPContext pContext);
+	void RemoveAndCloseConnected(PCIOCPContext pContext);
 	void RemoveAllConnected();
 
 
@@ -78,24 +78,30 @@ private:
 	BOOL PostSend(PCIOCPContext pContext, PCIOCPBuffer pBuffer);
 	BOOL PostRecv(PCIOCPContext pContext, PCIOCPBuffer pBuffer);
 
+	//一些处理函数
+	BOOL CheckAndGoAwayViciousLink();
+
+	//异步I/O事件处理函数
+	void DealFunction(PCIOCPContext pContext, PCIOCPBuffer pBuffer, DWORD dwTransBytes);
+
 
 
 private:
 	 bool m_bServerStarted;
 	 bool m_bShutDown;
 
-	 WORD m_wPort;
+	 WORD m_wPort;                      //监听端口
 	 unsigned int m_nMaxConnections;    //本服务器允许的最大联入数
-	 unsigned int m_nMaxFreeBuffers;    //本服务器运行的最大IO唯一数据的个数
-	 unsigned int m_nMaxFreeContexts;   //本服务器运行的最大handle唯一数据的个数
+	 unsigned int m_nMaxFreeBuffers;    //本服务器运行的最大空闲IO唯一数据的个数
+	 unsigned int m_nMaxFreeContexts;   //本服务器运行的最大空闲handle唯一数据的个数
 	 unsigned int m_nInitialReads;
 
 	 SOCKET m_sListen;
 	 HANDLE m_hCompletion;
 
-	 HANDLE m_hAcceptEvent;  
-	 HANDLE m_hRepostEvent;
-	 HANDLE m_hShutDownEvent;
+	 HANDLE m_hAcceptEvent;        //受信时表示处理acceptex的异步IO已经用完，不够了
+	 HANDLE m_hRepostEvent;        //受信时表示接收了一个acceptex
+	 HANDLE m_hShutDownEvent;      //受信时表示停止服务，进行停止处理
 
 
 	 //I/O-per内存管理链表相关变量
@@ -128,4 +134,8 @@ private:
 
 	 LPFN_ACCEPTEX m_lpfnAcceptEx;	
 	 LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExSockaddrs; 
+
+	 long m_errorCode;
 };
+
+#endif
