@@ -15,6 +15,9 @@ int _tmain(int argc, _TCHAR* argv[])
 	{
 		printf("errorCode = %u\n", errorCode);
 	}
+
+
+	test.join();
 	return 0;
 }
 

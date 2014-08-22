@@ -7,7 +7,7 @@
 
 CIOCPSer::CIOCPSer()
 	: m_bServerStarted(false)
-	, m_bShutDown(false)
+	, m_bShutDown(true)
 	, m_wPort(LISTENPORT)
 	, m_nMaxConnections(MAXCONNECTEDCOUNT)
 	, m_nMaxFreeBuffers(MAXFREEBUFFER)
@@ -29,6 +29,7 @@ CIOCPSer::CIOCPSer()
 	, m_unCurrentConnectedCount(0)
 	, m_unCuttentPostAcceptBufCount(0)
 	, m_unInitAsynAcceptCnt(5)
+	, m_unInitWorkThreadCnt(5)
 	, m_errorCode(SUCCESS)
 {
 	m_hAcceptEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  //no manually reset and nonsignal
@@ -221,7 +222,12 @@ void CIOCPSer::StopSer()
 	SetEvent(m_hShutDownEvent);
 }
 
+void CIOCPSer::join()
+{
+	WaitForSingleObject(m_hListenThread, INFINITE);
+}
 
+//缺陷：再次利用时，可能需要的长度高于了分配的长度，这样非常不好，需要修改？？？？？？可以考虑值返回类型试试（可以）
 PCIOCPBuffer CIOCPSer::AllocIOBuffer(int bufLen/* = MAXIOBUFFERSIZE*/)
 {
 	if (!bufLen || bufLen > MAXIOBUFFERSIZE)
@@ -296,10 +302,11 @@ void CIOCPSer::FreeAllIOBuffer()
 		m_pFreeBufferList = m_pFreeBufferList->pBuffer;
 		FreeIOBuffer(pTmpBuffer, true);
 	}
-	LeaveCriticalSection(&m_csFreeBufferListLock);
-
+	
 	m_pFreeBufferList = NULL;
 	m_unFreeBufferCount = 0;
+
+	LeaveCriticalSection(&m_csFreeBufferListLock);
 }
 
 
@@ -331,8 +338,7 @@ PCIOCPContext CIOCPSer::AllocContextPer(SOCKET s, unsigned int MaxRecvCnt/* = 20
 
 	if(pConntext) 
 	{ 
-		assert(pConntext->pNext != NULL);
-		pConntext->ReturnInitStatus();
+		pConntext->ReturnInitStatus(MaxRecvCnt, MaxSendCnt);
 
 		pConntext->s = s;
 		pConntext->SetMaxAsynRecvCnt(MaxRecvCnt);
@@ -391,13 +397,14 @@ void CIOCPSer::FreeAllContextPer()
 		m_pFreeContextList = m_pFreeContextList->pNext;
 		FreeContextPer(pTmpContext, true);
 	}
-	LeaveCriticalSection(&m_csFreeContextListLock);
-
+	
 	m_pFreeContextList = NULL;
 	m_unFreeContextCount = 0;
+
+	LeaveCriticalSection(&m_csFreeContextListLock);
 }
 
-
+//return false时代表本服务器可接收的最大链接数已经满了，这时外部调用函数需要处理？？？？？？
 BOOL CIOCPSer::AddConnectedList(PCIOCPContext pContext)
 {
 	BOOL result = FALSE;
@@ -418,7 +425,8 @@ BOOL CIOCPSer::AddConnectedList(PCIOCPContext pContext)
 }
 
 
-/*pContext指向的内存，在外部还需要调用FreeContextPer（pContext）函数*/
+/*pContext指向的内存，在外部还需要调用FreeContextPer（pContext）函数*///？？？？？？
+/*此函数只是关闭了*/
 void CIOCPSer::RemoveAndCloseConnected(PCIOCPContext pContext)
 {
 	if (pContext)
@@ -486,10 +494,10 @@ void CIOCPSer::RemoveAllConnected()
 BOOL CIOCPSer::AddPendingAccept(PCIOCPBuffer pIOBuffer)
 {
 	BOOL bResult = FALSE;
-
+	EnterCriticalSection(&m_csPostAcceptBufListLock);
 	if (pIOBuffer)
 	{
-		EnterCriticalSection(&m_csPostAcceptBufListLock);
+		
 		if (m_pPostAcceptBufList)
 		{
 			pIOBuffer->pBuffer = m_pPostAcceptBufList;
@@ -501,12 +509,12 @@ BOOL CIOCPSer::AddPendingAccept(PCIOCPBuffer pIOBuffer)
 			pIOBuffer->pBuffer = NULL;
 		}
 		bResult = TRUE;
-		LeaveCriticalSection(&m_csPostAcceptBufListLock);
 	}
 
 	if (bResult)
 		++m_unCuttentPostAcceptBufCount;
 
+	LeaveCriticalSection(&m_csPostAcceptBufListLock);
 	return bResult;
 }
 
@@ -636,6 +644,8 @@ BOOL CIOCPSer::PostRecv(PCIOCPContext pContext, PCIOCPBuffer pBuffer)
 
 unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 {
+
+	unsigned int returnCode = 0;
 	do 
 	{
 		CIOCPSer *pThis = reinterpret_cast<CIOCPSer *>(param);
@@ -645,11 +655,16 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "run listen thread funcation is error 1, exit listen thread funcation!!!\n");
 			break;
 		}
-
-		return pThis->ListenWorkThread();
+		
+		returnCode = pThis->ListenWorkThread();
 	} while (false);
 
-	return 0;
+	if(logger::CLogger::CanPrint())
+		logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "listen thread funcation is exit!!!\n");
+
+	//这里好像欠缺处理代码（需思考）？？？？？？？？？？ 
+
+	return returnCode;
 }
 
 /*任务：
@@ -671,7 +686,7 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "Allocate IOBuffer is fail. exit listen thread funcation!!!\n");
 #ifdef _DEBUG
 			printf("Allocate IOBuffer is fail. exit listen thread funcation\n");
-			OutputDebugStringA("Allocate IOBuffer is fail. exit listen thread funcation！！\n");
+			OutputDebugStringA("Allocate IOBuffer is fail. exit listen thread funcation!!\n");
 #endif
 			return 0;
 		}
@@ -878,8 +893,8 @@ unsigned int _stdcall CIOCPSer::WorkThread(LPVOID param)
 unsigned int _stdcall CIOCPSer::WorkThread()
 {
 #ifdef _DEBUG
-	printf("worker thread is starting...");
-	OutputDebugStringA("worker thread is starting...！！\n");
+	printf("worker thread is starting...!!\n");
+	OutputDebugStringA("worker thread is starting...!!\n");
 #endif
 
 	DWORD           dwTransBytes;
@@ -892,8 +907,8 @@ unsigned int _stdcall CIOCPSer::WorkThread()
 		if ((DWORD)-1 == dwTransBytes)    //监听线程或用户通知退出
 		{
 #ifdef _DEBUG
-			printf("workerThread exit because user send exit command!");
-			OutputDebugStringA("workerThread exit because user send exit command!");
+			printf("workerThread exit because user send exit command!\n");
+			OutputDebugStringA("workerThread exit because user send exit command!\n");
 			break;
 #endif
 		}
@@ -1044,25 +1059,25 @@ void CIOCPSer::DealFunction(PCIOCPContext pContext, PCIOCPBuffer pBuffer, DWORD 
 		break;
 	case OP_READ:
 		{
-			pBuffer->nLen = dwTrans;
-			// 按照I/O投递的顺序读取接收到的数据
-			CIOCPBuffer *p = GetNextReadBuffer(pContext, pBuffer);
-			while(p != NULL)
-			{
-				// 通知用户
-				OnReadCompleted(pContext, p);
-				// 增加要读的序列号的值
-				::InterlockedIncrement((LONG*)&pContext->nCurrentReadSequence);
-				// 释放这个已完成的I/O
-				ReleaseBuffer(p);
-				p = GetNextReadBuffer(pContext, NULL);
-			}
+			//pBuffer->nLen = dwTrans;
+			//// 按照I/O投递的顺序读取接收到的数据
+			//CIOCPBuffer *p = GetNextReadBuffer(pContext, pBuffer);
+			//while(p != NULL)
+			//{
+			//	// 通知用户
+			//	OnReadCompleted(pContext, p);
+			//	// 增加要读的序列号的值
+			//	::InterlockedIncrement((LONG*)&pContext->nCurrentReadSequence);
+			//	// 释放这个已完成的I/O
+			//	ReleaseBuffer(p);
+			//	p = GetNextReadBuffer(pContext, NULL);
+			//}
 
 			// 继续投递一个新的接收请求
-			pBuffer = AllocateBuffer(BUFFER_SIZE);
+			pBuffer = AllocIOBuffer(MAXIOBUFFERSIZE);
 			if(pBuffer == NULL || !PostRecv(pContext, pBuffer))
 			{
-				CloseAConnection(pContext);
+				RemoveAndCloseConnected(pContext);
 			}
 
 		}

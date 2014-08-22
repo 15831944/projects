@@ -27,8 +27,8 @@ public:
 	参数名                   参数意义
 	wPort                   监听端口号
 	nMaxConnections         允许的最大连接数
-	nMaxFreeBuffers         允许的最大不用真正释放的IO唯一数据结构个数
-	nMaxFreeContexts		允许的最大不用真正释放的句柄唯一数据结构个数
+	nMaxFreeBuffers         允许的最大不用真正释放的IO唯一数据结构个数(即最大的空闲IO唯一数据结构个数)
+	nMaxFreeContexts		允许的最大不用真正释放的句柄唯一数据结构个数(即最大的空闲句柄唯一数据结构个数)
 
 	*************************************/
 	bool StartSer(unsigned long &errorCode, WORD wPort = LISTENPORT, unsigned int nMaxConnections = MAXCONNECTEDCOUNT, 
@@ -38,6 +38,9 @@ public:
 	函 数 功 能：停止服务
 	***********************************/
 	void StopSer();
+
+	/*等待这个服务退出，如果主线程不会立即退出的话可以不用调用*/
+	void join();
 
 	void SetInitPostAsynAcceptCnt(unsigned int count){m_unInitAsynAcceptCnt = count;}    //此函数在StartSer前调用
 	void SetInitWorkThreadCnt(unsigned int count){m_unInitWorkThreadCnt = (count > MAXWORKTHREADNUM ? MAXWORKTHREADNUM : count);}
@@ -87,8 +90,8 @@ private:
 
 
 private:
-	 bool m_bServerStarted;
-	 bool m_bShutDown;
+	 bool m_bServerStarted;          //服务启动标记
+	 bool m_bShutDown;               //服务关闭/停止标记
 
 	 WORD m_wPort;                      //监听端口
 	 unsigned int m_nMaxConnections;    //本服务器允许的最大联入数
@@ -99,7 +102,7 @@ private:
 	 SOCKET m_sListen;
 	 HANDLE m_hCompletion;
 
-	 HANDLE m_hAcceptEvent;        //受信时表示处理acceptex的异步IO已经用完，不够了
+	 HANDLE m_hAcceptEvent;        //受信时表示处理acceptex的异步IO后已经用完，不够了
 	 HANDLE m_hRepostEvent;        //受信时表示接收了一个acceptex
 	 HANDLE m_hShutDownEvent;      //受信时表示停止服务，进行停止处理
 

@@ -35,7 +35,7 @@ private:
 #define OP_WRITE	2
 #define OP_READ		3
 
-	_tagCIOCPBuffer *pBuffer;
+	_tagCIOCPBuffer *pBuffer;    //用于内存空间的管理
 
 	void InitStruct()
 	{
@@ -45,6 +45,7 @@ private:
 		buffLen      = 0;
 		nOperation   = OP_UNKNOW;
 		pBuffer      = NULL;
+		ol.hEvent    = WSACreateEvent();   //无信号，非人工重置的
 	}
 
 	void ReturnIniStatus()
@@ -69,6 +70,12 @@ private:
 		//	closesocket(sClient);
 		//	sClient = NULL;
 		//}
+
+		if (NULL != ol.hEvent)
+		{
+			CloseHandle(ol.hEvent);
+			ol.hEvent = NULL;
+		}
 	}
 
 private:
@@ -138,11 +145,10 @@ public:
 			s = NULL;
 		}
 
-		assert(pNext != NULL);
 		DeleteCriticalSection(&Lock);
 	}
 
-	void ReturnInitStatus()
+	void ReturnInitStatus(unsigned int MaxRecvCount = 200, unsigned int MaxSendCount = 200)
 	{
 		memset(&addrLocal, 0x0, sizeof(SOCKADDR_IN));
 		memset(&addrRemote, 0x0, sizeof(SOCKADDR_IN));
@@ -154,8 +160,8 @@ public:
 		nReadSequence        = 0;
 		nCurrentReadSequence = 0;
 		pOutOfOrderReads     = NULL;
-		nMaxAsynRecvCount    = 200;
-		nMaxAsynSendCount    = 200;
+		nMaxAsynRecvCount    = MaxRecvCount;
+		nMaxAsynSendCount    = MaxSendCount;
 
 		pNext                = NULL;
 	}
