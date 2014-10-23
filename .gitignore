@@ -1,7 +1,9 @@
 CompletionPortSer/Debug/
 CompletionPortSer/CompletionPortSer/Debug/
+CompletionPortSer/CompletionPortSer/*.user
 Complex_completionPort/Debug/
 Complex_completionPort/Complex_completionPort/Debug/
+Complex_completionPort/Complex_completionPort/*.user
 Test/
 dllTest/Debug/
 *.suo

@@ -27,7 +27,8 @@ private:
 	ULONG  nSequenceNum;  //(暂时没有使用)
 
 	char *buff;   //这个buff所指的内存区必须紧跟此结构体之后
-	int  buffLen;
+	int  buffLen;  //记录了buff的总长度
+	int  nLen;   //记录buff中已经使用的长度（即数据的真实长度）
 
 	int nOperation;
 #define OP_UNKNOW   0
@@ -43,6 +44,7 @@ private:
 		nSequenceNum = 0;
 		buff         = NULL;
 		buffLen      = 0;
+		nLen         = 0;
 		nOperation   = OP_UNKNOW;
 		pBuffer      = NULL;
 		ol.hEvent    = WSACreateEvent();   //无信号，非人工重置的
@@ -54,6 +56,7 @@ private:
 		nSequenceNum = 0;
 		buff         = NULL;
 		//buffLen      = 0;
+		nLen         = 0;
 		nOperation   = OP_UNKNOW;
 		pBuffer      = NULL;
 	}
@@ -106,8 +109,8 @@ private:
 	unsigned int nMaxAsynRecvCount;         //最大的异步操作数
 	unsigned int nMaxAsynSendCount;
 
-	ULONG nReadSequence;			// 安排给接收的下一个序列号    （暂时未使用）
-	ULONG nCurrentReadSequence;		// 当前要读的序列号             （暂时未使用）
+	ULONG nReadSequence;			// 安排给接收的下一个序列号    
+	ULONG nCurrentReadSequence;		// 当前要读的序列号             
 	PCIOCPBuffer pOutOfOrderReads;	// 记录没有按顺序完成的读I/O
 
 	CRITICAL_SECTION Lock;			// 保护这个结构，此结构可能被多个线程访问

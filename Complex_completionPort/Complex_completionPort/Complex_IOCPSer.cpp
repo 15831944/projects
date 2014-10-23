@@ -13,6 +13,7 @@ CIOCPSer::CIOCPSer()
 	, m_nMaxFreeBuffers(MAXFREEBUFFER)
 	, m_nMaxFreeContexts(MAXFREECONTEXT)
 	, m_nInitialReads(4)
+	, m_pRecvSink(NULL)
 	, m_sListen(INVALID_SOCKET)
 	, m_lpfnAcceptEx(NULL)
 	, m_lpfnGetAcceptExSockaddrs(NULL)
@@ -123,7 +124,7 @@ bool CIOCPSer::StartSer(unsigned long &errorCode, WORD wPort /* = LISTENPORT */,
 	m_nInitialReads = nInitialReads;
 
 	m_bShutDown = false;
-	m_bServerStarted = true;
+	
 
 	m_sListen = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
 	if( INVALID_SOCKET == m_sListen)
@@ -144,7 +145,7 @@ bool CIOCPSer::StartSer(unsigned long &errorCode, WORD wPort /* = LISTENPORT */,
 
 	Listen(m_sListen, 200);
 
-	m_hCompletion = CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
+	m_hCompletion = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
 	if (NULL == m_hCompletion)
 	{
 		DWORD error_code = GetLastError();
@@ -196,7 +197,7 @@ bool CIOCPSer::StartSer(unsigned long &errorCode, WORD wPort /* = LISTENPORT */,
 		return false;
 	}
 
-	CreateIoCompletionPort((HANDLE)m_sListen, m_hCompletion, (DWORD)0, 0);   //对于监听套接字，我没有传句柄唯一对象？？？？？？？？？？？？？？？
+	CreateIoCompletionPort((HANDLE)m_sListen, m_hCompletion, (DWORD)0, 0);   //对于监听套接字，没有传句柄唯一对象
 
 	//如果为null则不注册FD_ACCEPT事件
 	if (NULL != m_hAcceptEvent)
@@ -213,6 +214,7 @@ bool CIOCPSer::StartSer(unsigned long &errorCode, WORD wPort /* = LISTENPORT */,
 	}
 
 	errorCode = SUCCESS;
+	m_bServerStarted = true;
 	return true;
 }
 
@@ -222,6 +224,11 @@ void CIOCPSer::StopSer()
 	SetEvent(m_hShutDownEvent);
 }
 
+
+void CIOCPSer::AdviseSink(IRecvSink *sink)
+{
+	m_pRecvSink = sink;
+}
 void CIOCPSer::join()
 {
 	WaitForSingleObject(m_hListenThread, INFINITE);
@@ -622,6 +629,7 @@ BOOL CIOCPSer::PostRecv(PCIOCPContext pContext, PCIOCPBuffer pBuffer)
 		if(pContext->nMaxAsynRecvCount > pContext->nOutstandingRecv)
 		{
 			pBuffer->nOperation = OP_READ;
+			pBuffer->nSequenceNum = pContext->nReadSequence;
 			DWORD dwBytes;
 			DWORD dwFlags = 0;
 			WSABUF buf;
@@ -635,7 +643,10 @@ BOOL CIOCPSer::PostRecv(PCIOCPContext pContext, PCIOCPBuffer pBuffer)
 	}
 
 	if (bResult)
-		++pContext->nOutstandingRecv;
+	{
+		++(pContext->nOutstandingRecv);
+		++(pContext->nReadSequence);
+	}
 
 	LeaveCriticalSection(&pContext->Lock);
 
@@ -663,6 +674,7 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 		logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "listen thread funcation is exit!!!\n");
 
 	//这里好像欠缺处理代码（需思考）？？？？？？？？？？ 
+	//应该停止全部的服务或通知上传（回调上层通知函数）
 
 	return returnCode;
 }
@@ -1059,19 +1071,23 @@ void CIOCPSer::DealFunction(PCIOCPContext pContext, PCIOCPBuffer pBuffer, DWORD 
 		break;
 	case OP_READ:
 		{
-			//pBuffer->nLen = dwTrans;
-			//// 按照I/O投递的顺序读取接收到的数据
-			//CIOCPBuffer *p = GetNextReadBuffer(pContext, pBuffer);
-			//while(p != NULL)
-			//{
-			//	// 通知用户
-			//	OnReadCompleted(pContext, p);
-			//	// 增加要读的序列号的值
-			//	::InterlockedIncrement((LONG*)&pContext->nCurrentReadSequence);
-			//	// 释放这个已完成的I/O
-			//	ReleaseBuffer(p);
-			//	p = GetNextReadBuffer(pContext, NULL);
-			//}
+			pBuffer->nLen = dwTransBytes;
+			// 按照I/O投递的顺序读取接收到的数据
+			CIOCPBuffer *p = GetNextReadBuffer(pContext, pBuffer);
+			while(p != NULL)
+			{
+				// 通知用户
+			    if (m_pRecvSink)
+			    {
+					m_pRecvSink->OnRecv(pBuffer->buff, pBuffer->nLen, inet_ntoa((pContext->addrRemote).sin_addr), ntohs((pContext->addrRemote).sin_port));
+			    }
+			    
+				// 增加要读的序列号的值
+				::InterlockedIncrement((LONG*)&pContext->nCurrentReadSequence);
+				// 释放这个已完成的I/O
+				FreeIOBuffer(p);
+				p = GetNextReadBuffer(pContext, NULL);
+			}
 
 			// 继续投递一个新的接收请求
 			pBuffer = AllocIOBuffer(MAXIOBUFFERSIZE);
@@ -1088,5 +1104,47 @@ void CIOCPSer::DealFunction(PCIOCPContext pContext, PCIOCPBuffer pBuffer, DWORD 
 		}
 		break;
 	}
+}
+
+PCIOCPBuffer CIOCPSer::GetNextReadBuffer(PCIOCPContext pContext, PCIOCPBuffer pBuffer)
+{
+	if(pBuffer)
+	{
+		if(pBuffer->nSequenceNum == pContext->nCurrentReadSequence)
+		{
+			return pBuffer;
+		}
+		
+		pBuffer->pBuffer = NULL;
+		CIOCPBuffer *ptr = pContext->pOutOfOrderReads;
+		CIOCPBuffer *pPre = NULL;
+		while(NULL != ptr)
+		{
+			if(pBuffer->nSequenceNum < ptr->nSequenceNum)
+				break;
+			pPre = ptr;
+			ptr = ptr->pBuffer;
+		}
+
+		if(NULL == pPre)
+		{
+			pBuffer->pBuffer = pContext->pOutOfOrderReads;
+			pContext->pOutOfOrderReads = pBuffer->pBuffer;
+		}
+		else
+		{
+			pBuffer->pBuffer = pPre->pBuffer;
+			pPre->pBuffer = pBuffer;
+		}
+	}
+
+	// 检查表头元素的序列号，如果与要读的序列号一致，就将它从表中移除，返回给用户
+	CIOCPBuffer *ptr = pContext->pOutOfOrderReads;
+	if(ptr != NULL && (ptr->nSequenceNum == pContext->nCurrentReadSequence))
+	{
+		pContext->pOutOfOrderReads = ptr->pBuffer;
+		return ptr;
+	}
+	return NULL;
 }
 

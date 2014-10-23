@@ -36,6 +36,22 @@ SOCKET Socket(int af, int type, int protocol)
 	return sock;
 }
 
+#ifdef WIN32
+SOCKET WSASocket_SW(int af, int type, int protocol, LPWSAPROTOCOL_INFO lpProtocolInfo, GROUP g, DWORD dwFlags)
+{
+	SOCKET sock;
+	if(INVALID_SOCKET == (sock = WSASocket(af, type, protocol, lpProtocolInfo, g, dwFlags)))
+	{
+		DWORD error_code = GetLastError();
+		if(logger::CLogger::CanPrint())
+			logger::CLogger::PrintA(SOCKETWRAPLOGNAME, "create socket is error !!! error_code = %d\n", error_code);
+		assert(false);
+	}
+
+	return sock;
+}
+#endif
+
 int Bind(SOCKET s, const struct sockaddr *name, int nameLen)
 {
 	if(SOCKET_ERROR == bind(s, name, nameLen))

@@ -1,6 +1,7 @@
 #ifndef COMPLEXCOMPLETIONPORT_COMPLEXIOCPSER_HEAD
 #define COMPLEXCOMPLETIONPORT_COMPLEXIOCPSER_HEAD
 #include "DataStruct.h"
+#include "IRecvInterFace.h"
 #include <WinSock2.h>
 #include <Windows.h>
 #include <Mswsock.h>
@@ -38,6 +39,11 @@ public:
 	函 数 功 能：停止服务
 	***********************************/
 	void StopSer();
+
+	/*********************************
+	函 数 功 能：设置回调指针（数据接收指针）
+	***********************************/
+	void AdviseSink(IRecvSink *sink);
 
 	/*等待这个服务退出，如果主线程不会立即退出的话可以不用调用*/
 	void join();
@@ -86,10 +92,12 @@ private:
 
 	//异步I/O事件处理函数
 	void DealFunction(PCIOCPContext pContext, PCIOCPBuffer pBuffer, DWORD dwTransBytes);
+	PCIOCPBuffer GetNextReadBuffer(PCIOCPContext, PCIOCPBuffer);
 
 
 
 private:
+	 IRecvSink  *m_pRecvSink;            //回调接口
 	 bool m_bServerStarted;          //服务启动标记
 	 bool m_bShutDown;               //服务关闭/停止标记
 

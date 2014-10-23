@@ -237,6 +237,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\IRecvInterFace.h"
+				>
+			</File>
+			<File
 				RelativePath=".\SocketWrap.h"
 				>
 			</File>
