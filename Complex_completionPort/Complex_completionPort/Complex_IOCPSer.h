@@ -6,6 +6,7 @@
 #include <Windows.h>
 #include <Mswsock.h>
 #include <process.h>
+#include <string>
 
 
 #define MAXCONNECTEDCOUNT   2000
@@ -32,7 +33,7 @@ public:
 	nMaxFreeContexts		允许的最大不用真正释放的句柄唯一数据结构个数(即最大的空闲句柄唯一数据结构个数)
 
 	*************************************/
-	bool StartSer(unsigned long &errorCode, WORD wPort = LISTENPORT, unsigned int nMaxConnections = MAXCONNECTEDCOUNT, 
+	bool StartSer(unsigned long &errorCode, std::string sLocalIP = "", WORD wPort = LISTENPORT, unsigned int nMaxConnections = MAXCONNECTEDCOUNT, 
 				  unsigned int nMaxFreeBuffers = MAXFREEBUFFER, unsigned int nMaxFreeContexts = MAXFREECONTEXT, unsigned int nInitialReads = 4);
 
 	/**********************************
@@ -44,6 +45,7 @@ public:
 	函 数 功 能：设置回调指针（数据接收指针）
 	***********************************/
 	void AdviseSink(IRecvSink *sink);
+	void UnAdviseSink();
 
 	/*等待这个服务退出，如果主线程不会立即退出的话可以不用调用*/
 	void join();
@@ -105,7 +107,7 @@ private:
 	 unsigned int m_nMaxConnections;    //本服务器允许的最大联入数
 	 unsigned int m_nMaxFreeBuffers;    //本服务器运行的最大空闲IO唯一数据的个数
 	 unsigned int m_nMaxFreeContexts;   //本服务器运行的最大空闲handle唯一数据的个数
-	 unsigned int m_nInitialReads;
+	 unsigned int m_nInitialReads;     //(暂时未使用)
 
 	 SOCKET m_sListen;
 	 HANDLE m_hCompletion;
@@ -147,6 +149,8 @@ private:
 	 LPFN_GETACCEPTEXSOCKADDRS m_lpfnGetAcceptExSockaddrs; 
 
 	 long m_errorCode;
+
+	 HANDLE m_hWorkThreadShutDownEvent;
 };
 
 #endif

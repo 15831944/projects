@@ -7,5 +7,6 @@ class IRecvSink
 {
 public:
 	virtual void OnRecv(char *buf, int bufLen, std::string remoteIp, unsigned short remotePort) = 0;
+	virtual void OnListenThreadExit(unsigned int unExitCode) = 0;
 };
 #endif

@@ -6,8 +6,12 @@
 #define CREATESOCKET_ERROR                    2
 #define CREATECOMPLETIONPORT_ERROR            3
 #define LOADFUN_ERROR                         4
-#define CREATETHREAD_ERROR                    5
 
-#define CREATEALLWORKTHREAD_ERROR             6
+#define CREATELISTENTHREAD_ERROR              5
+
+
+//thread exit code 
+#define CREATEACCEPTIOBUFFER_ERROR            -100
+#define CREATEALLWORKTHREAD_ERROR             -101
 //#define 
 #endif

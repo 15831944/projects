@@ -24,7 +24,7 @@ private:
 
 	SOCKET sClient;   //AcceptEx recv client socket
 
-	ULONG  nSequenceNum;  //(暂时没有使用)
+	ULONG  nSequenceNum;  
 
 	char *buff;   //这个buff所指的内存区必须紧跟此结构体之后
 	int  buffLen;  //记录了buff的总长度

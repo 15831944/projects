@@ -21,6 +21,7 @@ CIOCPSer::CIOCPSer()
 	, m_hAcceptEvent(NULL)
 	, m_hRepostEvent(NULL)
 	, m_hShutDownEvent(NULL)
+	, m_hWorkThreadShutDownEvent(NULL)
 	, m_pFreeBufferList(NULL)
 	, m_pFreeContextList(NULL)
 	, m_pConnectedList(NULL)
@@ -104,7 +105,7 @@ CIOCPSer::~CIOCPSer()
 }
 
 
-bool CIOCPSer::StartSer(unsigned long &errorCode, WORD wPort /* = LISTENPORT */, unsigned int nMaxConnections /* = MAXCONNECTEDCOUNT */, unsigned int nMaxFreeBuffers /* = MAXFREEBUFFER */, 
+bool CIOCPSer::StartSer(unsigned long &errorCode, std::string sLocalIP/* = ""*/, WORD wPort /* = LISTENPORT */, unsigned int nMaxConnections /* = MAXCONNECTEDCOUNT */, unsigned int nMaxFreeBuffers /* = MAXFREEBUFFER */, 
 						unsigned int nMaxFreeContexts /* = MAXFREECONTEXT */, unsigned int nInitialReads /* = 4 */)
 {
 	if (m_bServerStarted)
@@ -139,7 +140,15 @@ bool CIOCPSer::StartSer(unsigned long &errorCode, WORD wPort /* = LISTENPORT */,
 	sockaddr_in listenAddr = {0};
 	listenAddr.sin_family = AF_INET;
 	listenAddr.sin_port   = htons(m_wPort);
-	listenAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
+	if(sLocalIP.empty())
+	{
+		listenAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
+	}
+	else
+	{
+		listenAddr.sin_addr.S_un.S_addr = inet_addr(sLocalIP.c_str());
+	}
+	
 
 	Bind(m_sListen, (sockaddr *)&listenAddr, sizeof(listenAddr));
 
@@ -209,7 +218,7 @@ bool CIOCPSer::StartSer(unsigned long &errorCode, WORD wPort /* = LISTENPORT */,
 	{
 		if(logger::CLogger::CanPrint())
 			logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create listen thread funcation is error , exit listen thread funcation!!!\n");
-		errorCode = CREATETHREAD_ERROR;
+		errorCode = CREATELISTENTHREAD_ERROR;
 		return false;
 	}
 
@@ -222,6 +231,7 @@ void CIOCPSer::StopSer()
 {
 	m_bShutDown = true;
 	SetEvent(m_hShutDownEvent);
+	//这里有问题，需要添加等待线程退出与m_bServerStarted设置成False的步骤
 }
 
 
@@ -229,9 +239,28 @@ void CIOCPSer::AdviseSink(IRecvSink *sink)
 {
 	m_pRecvSink = sink;
 }
+
+void CIOCPSer::UnAdviseSink()
+{
+	if (m_pRecvSink)
+	{
+		m_pRecvSink = NULL;
+	}
+}
+
 void CIOCPSer::join()
 {
-	WaitForSingleObject(m_hListenThread, INFINITE);
+	if (m_bServerStarted)
+	{
+		if (m_hListenThread)
+			WaitForSingleObject(m_hListenThread, INFINITE);
+		else
+		{
+			if(logger::CLogger::CanPrint())
+				logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "join function is error!!! m_hListenThread = NULL\n");
+		}
+
+	}
 }
 
 //缺陷：再次利用时，可能需要的长度高于了分配的长度，这样非常不好，需要修改？？？？？？可以考虑值返回类型试试（可以）
@@ -257,7 +286,7 @@ PCIOCPBuffer CIOCPSer::AllocIOBuffer(int bufLen/* = MAXIOBUFFERSIZE*/)
 		IOPer = m_pFreeBufferList;
 		m_pFreeBufferList = m_pFreeBufferList->pBuffer;
 		IOPer->pBuffer     = NULL;
-		--m_pFreeBufferList;
+		--m_unFreeBufferCount;
 	}
 	LeaveCriticalSection(&m_csFreeBufferListLock);
 
@@ -670,12 +699,17 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 		returnCode = pThis->ListenWorkThread();
 	} while (false);
 
+#ifdef _DEBUG
+	printf("listen thread funcation is exit!!! returnCode = %u\n", returnCode);
+	OutputDebugStringA("listen thread funcation is exit!!!\n");
+#endif
+
 	if(logger::CLogger::CanPrint())
 		logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "listen thread funcation is exit!!!\n");
 
 	//这里好像欠缺处理代码（需思考）？？？？？？？？？？ 
-	//应该停止全部的服务或通知上传（回调上层通知函数）
-
+	//（1）应该停止全部的服务或通知上传（回调上层通知函数）如何通知呢，这里是静态函数...........
+	//（2）如果存在工作线程是否应该通知工作线程退，并释放内存呢？
 	return returnCode;
 }
 
@@ -687,6 +721,10 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread(LPVOID param)
 */
 unsigned int _stdcall CIOCPSer::ListenWorkThread()
 {
+#ifdef _DEBUG
+	printf("listen thread is starting...!!\n");
+	OutputDebugStringA("listen thread is starting...!!\n");
+#endif
 
 	PCIOCPBuffer pBuffer = NULL;
 	for(unsigned int i = 0; i < m_unInitAsynAcceptCnt; ++i)
@@ -700,7 +738,7 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 			printf("Allocate IOBuffer is fail. exit listen thread funcation\n");
 			OutputDebugStringA("Allocate IOBuffer is fail. exit listen thread funcation!!\n");
 #endif
-			return 0;
+			return CREATEACCEPTIOBUFFER_ERROR;
 		}
 
 		if(PostAccept(pBuffer))
@@ -732,6 +770,11 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 			continue;
 		}
 
+		if (NULL == m_hWorkThreadShutDownEvent)
+		{
+			m_hWorkThreadShutDownEvent = CreateEvent(NULL, FALSE, FALSE, NULL); 
+		}
+		
 		++nEventNum;
 	}
 
@@ -742,7 +785,7 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 			logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "create ALL work thread funcation is error!!!\n");
 
 		m_errorCode = CREATEALLWORKTHREAD_ERROR;
-		return 0;
+		return CREATEALLWORKTHREAD_ERROR;
 	}
 	else if(failNum)
 	{
@@ -766,7 +809,8 @@ unsigned int _stdcall CIOCPSer::ListenWorkThread()
 				PostQueuedCompletionStatus(m_hCompletion, -1, 0, NULL);
 			}
 
-			WaitForMultipleObjects(m_unInitWorkThreadCnt, &hWaitEvvents[3], TRUE, 5 * 1000);
+			DWORD wdRes = WaitForMultipleObjects(m_unInitWorkThreadCnt, &hWaitEvvents[3], TRUE, 2 * 1000);
+			
 			for (unsigned int i = 3; i < m_unInitWorkThreadCnt + 3; ++i)
 			{
 				CloseHandle(hWaitEvvents[i]);
@@ -850,6 +894,7 @@ BOOL CIOCPSer::CheckAndGoAwayViciousLink()
 	BOOL bResult = FALSE;
 	do 
 	{
+		EnterCriticalSection(&m_csPostAcceptBufListLock);
 		PCIOCPBuffer pIOBuffer = m_pPostAcceptBufList;
 		while(pIOBuffer)
 		{
@@ -878,8 +923,9 @@ BOOL CIOCPSer::CheckAndGoAwayViciousLink()
 	if (!bResult && m_pPostAcceptBufList)
 	{
 		if(logger::CLogger::CanPrint())
-			logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "check vicious link is error!!!\n");
+			logger::CLogger::PrintA(COMPLLEXIOCPSERLOG, "check vicious link is false!!!\n");
 	}
+	LeaveCriticalSection(&m_csPostAcceptBufListLock);
 
 	return bResult;
 }
