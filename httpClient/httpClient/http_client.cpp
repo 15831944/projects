@@ -5,7 +5,7 @@
 
 //SSockInfo struct
 /*
-example: strAttr = "Content-Length"
+example: strAttr = "Content-Length"¡¢"Location"
 */
 bool _tagSSockInfo::GetAttributeSection(std::string strAttr, std::string &strValue)
 {
@@ -51,6 +51,29 @@ bool _tagSSockInfo::GetContentLength(size_t &len)
 	} while (false);
 
     return bResult;
+}
+
+bool _tagSSockInfo::GetLocationUrl()
+{
+	bool bResult = false;
+	do 
+	{
+		std::string strAttrValue;
+		if(GetAttributeSection("Location", strAttrValue))
+		{
+			std::string::size_type pos1 = strAttrValue.find(" ");
+			if (pos1 == std::string::npos)
+				break;
+
+			s_strJumpUrl = strAttrValue.substr(pos1 + 1);
+		}
+		else
+			break;
+
+		bResult = true;
+	} while (false);
+
+	return bResult;
 }
 
 unsigned long _tagSSockInfo::GetHttpState()

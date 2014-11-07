@@ -88,6 +88,7 @@ private:
 
 	bool GetAttributeSection(std::string strAttr, std::string &strValue);
 	bool GetContentLength(size_t &len);
+	bool GetLocationUrl();
 	unsigned long GetHttpState();
 
 	bool RecvHeadData(int &errorCode);
@@ -157,9 +158,7 @@ private:
 	SSockInfo_PTR GetSockInfoBySock(const SOCKET readSock);
     void StopSerOnOwn();
 	//}
-	
-   
-	
+
 private:
 	bool     m_bIsRuning;
 	HANDLE   m_hRecvThread;
