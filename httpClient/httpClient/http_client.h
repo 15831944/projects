@@ -14,6 +14,8 @@
 #define INVALID_TASK_ID 0xFFFFFFFF
 #define MAXCONCOUNT     4
 
+#define SUCCSEE                        0
+
 
 #define BUILDHTTPHEAD_ERROR            -91
 #define CONNECTHTTPSER_ERROR           -92
@@ -46,56 +48,24 @@
 创建时间：2014.10.29
 */
 
+class CHttpClient;
+
 typedef struct _tagSSockInfo
 {
-	SOCKET    s_hSocket;
-	bool      s_bHttpDowning;
-	
-	
-	int       s_DataLen;
-	unsigned  s_unTaskID;
-	CLock     s_owerLock;    //暂时未使用
-
-	
-
-	std::string s_strOrigUrl;
-	std::string s_strJumpUrl;	   
-
-
-
-	char      *s_cDataBuf;   //add '\0' in the string tail
-	unsigned  s_unContentLen;
-	unsigned  s_unHasRecvContentData;
-	bool      s_bIsHasRecvContentData;
-
-	char      s_cHeadBuf[2049];     ////add '\0' in the string tail, s_cHeadBuf[2048] = '\0'
-	unsigned  s_unHasHeadLen;  
-	bool      s_bIshasRecvHttpHead;
-
-
-	IRecvInterface *s_iSink;
-	          
-
-
-	bool RecvHeadData(int &errorCode);
-	bool RecvContentData(int &errorCode);
-	unsigned long GetHttpState();
-
-	//bool GetContentRange(size_t &pos, size_t &len, size_t &total);
-	bool GetContentLength(size_t &len);
-	bool GetAttributeSection(std::string strAttr, std::string &strValue);
+public:
+	friend class CHttpClient;
 
 	_tagSSockInfo(unsigned taskID, IRecvInterface *recvSink)
-	: s_iSink(recvSink)
-	, s_unTaskID(taskID)
-	, s_hSocket(INVALID_SOCKET)
-	, s_cDataBuf(NULL)
-	, s_DataLen(0)
-	, s_bIshasRecvHttpHead(false)
-	, s_bHttpDowning(false)
-	, s_unHasHeadLen(0)
-	, s_unContentLen(0)
-	, s_unHasRecvContentData(0)
+		: s_iSink(recvSink)
+		, s_unTaskID(taskID)
+		, s_hSocket(INVALID_SOCKET)
+		, s_cDataBuf(NULL)
+		, s_bIsHasRecvHttpHead(false)
+		, s_bIsHasRecvContentData(false)
+		, s_bHttpDowning(false)
+		, s_unHasHeadLen(0)
+		, s_unContentLen(0)
+		, s_unHasRecvContentData(0)
 	{
 		memset(s_cHeadBuf, 0x0, 2049);
 	}
@@ -114,6 +84,40 @@ typedef struct _tagSSockInfo
 			s_cDataBuf = NULL;
 		}
 	}
+private:
+
+	bool GetAttributeSection(std::string strAttr, std::string &strValue);
+	bool GetContentLength(size_t &len);
+	unsigned long GetHttpState();
+
+	bool RecvHeadData(int &errorCode);
+	bool RecvContentData(int &errorCode);
+
+	//bool GetContentRange(size_t &pos, size_t &len, size_t &total);
+	
+
+private:
+	SOCKET          s_hSocket;
+	IRecvInterface  *s_iSink;
+	unsigned        s_unTaskID;
+	bool            s_bHttpDowning;
+	CLock           s_owerLock;    //暂时未使用
+
+	std::string s_strOrigUrl;   //The original url
+	std::string s_strJumpUrl;	//jump url  
+
+	//{content data param
+	char      *s_cDataBuf;   //add '\0' in the string tail
+	unsigned  s_unContentLen;
+	unsigned  s_unHasRecvContentData;
+	bool      s_bIsHasRecvContentData;
+	//}
+
+	//{http response head data param
+	char      s_cHeadBuf[2049];     ////add '\0' in the string tail, s_cHeadBuf[2048] = '\0'
+	unsigned  s_unHasHeadLen;  
+	bool      s_bIsHasRecvHttpHead;
+	//}
 }SSockInfo, *PSSockInfo;
 
 typedef boost::shared_ptr<SSockInfo> SSockInfo_PTR;
@@ -129,6 +133,8 @@ public:
 	bool StopSer();
 
 	bool RegisterTask(unsigned taskID, IRecvInterface *recvSink);
+	bool cancelTask(unsigned taskID);
+//	bool StopHttpdownloading(unsigned taskID);
 	bool Get(const unsigned unTaskID, const std::string &strUrl, int &errorCode, const std::string &strHeadExpand = "");
 	bool GetDataBuf(const unsigned unTaskID, std::string &strData);
 	bool GetDataLen(const unsigned unTaskID, unsigned int &unDataLen);
@@ -136,26 +142,20 @@ public:
 private:
 
 	//{related to send http requset function
-
 	bool ParseHttpUrl(std::string strUrl, std::string &strHostName, unsigned &strHostPort, std::string &strHostObj);
 	bool Connect(SSockInfo_PTR sockInfo_ptr, std::string strHostName, unsigned strHostPort, unsigned outSec = 5, unsigned MaxCount = MAXCONCOUNT);
 	bool BuildSendData(std::ostringstream &httpHead, std::string strHostName, std::string strHostObj, std::string strHeadExpand);
 	bool Send(SSockInfo_PTR sockInfo, const char *sendBuf, unsigned sendLen, int &errorCode);
-
 	//}
 
 	//{receive data thread 
-
 	static unsigned int __stdcall RecvThread(void *param);
 	unsigned int __stdcall RecvThread();
-
 	//}
 
 	//{help function
-
 	SSockInfo_PTR GetSockInfoBySock(const SOCKET readSock);
-	// void StopSerOnOwn();
-
+    void StopSerOnOwn();
 	//}
 	
    

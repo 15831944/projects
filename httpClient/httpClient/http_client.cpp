@@ -4,6 +4,32 @@
 
 
 //SSockInfo struct
+/*
+example: strAttr = "Content-Length"
+*/
+bool _tagSSockInfo::GetAttributeSection(std::string strAttr, std::string &strValue)
+{
+	bool bResult = false;
+	do 
+	{
+		if (!s_bIsHasRecvHttpHead)
+			break;
+
+		char *pos1 = strstr(s_cHeadBuf, strAttr.c_str());
+		if (NULL == pos1)
+			break;
+
+		char *pos2 = strstr(pos1, "\r\n");
+		if (NULL == pos2)
+			break;
+
+		strValue.insert(strValue.begin(), pos1, pos2);
+		bResult = true;
+	} while (false);
+
+	return bResult;
+}
+
 bool _tagSSockInfo::GetContentLength(size_t &len)
 {
 	bool bResult = false;
@@ -27,36 +53,12 @@ bool _tagSSockInfo::GetContentLength(size_t &len)
     return bResult;
 }
 
-bool _tagSSockInfo::GetAttributeSection(std::string strAttr, std::string &strValue)
-{
-	bool bResult = false;
-	do 
-	{
-		if (!s_bIshasRecvHttpHead)
-			break;
-		
-		char *pos1 = strstr(s_cHeadBuf, strAttr.c_str());
-		if (NULL == pos1)
-			break;
-
-		char *pos2 = strstr(pos1, "\r\n");
-		if (NULL == pos2)
-			break;
-
-		strValue.insert(strValue.begin(), pos1, pos2);
-		bResult = true;
-	} while (false);
-
-	return bResult;
-
-}
-
 unsigned long _tagSSockInfo::GetHttpState()
 {
 	unsigned long httpState = 0;
 	do 
 	{
-		if (!s_bIshasRecvHttpHead)
+		if (!s_bIsHasRecvHttpHead)
 			break;
 
 		std::string strHttpHead(s_cHeadBuf);
@@ -104,9 +106,11 @@ bool _tagSSockInfo::RecvHeadData(int &errorCode)
 			{
 				memcpy(s_cHeadBuf + s_unHasHeadLen, recvBuf, pos + 4);
 				s_unHasHeadLen += (pos + 4);
-				s_bIshasRecvHttpHead = true;
+				s_bIsHasRecvHttpHead = true;
 
-				if(200 == GetHttpState())
+
+				unsigned long StateCode = GetHttpState();
+				if(200 == StateCode)
 				{
 					size_t contentLen = 0;
 					if(!GetContentLength(contentLen))
@@ -131,8 +135,13 @@ bool _tagSSockInfo::RecvHeadData(int &errorCode)
 					memcpy(s_cDataBuf + s_unHasRecvContentData,  recvBuf + pos + 4, recvResult - (pos + 4));
 					s_unHasRecvContentData += recvResult - (pos + 4);
 				}
+				else if(302 == StateCode)
+				{
+					//??????????????????????版本2添加
+				}
 				else
 				{
+					errorCode = StateCode;
 					break;
 				}
 
@@ -149,7 +158,7 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 	bool bResult = false;
 	do 
 	{
-		if (!s_bIshasRecvHttpHead)
+		if (!s_bIsHasRecvHttpHead)
 		{
 			errorCode = NOTRECVFINFSHHEAD;
 			break;
@@ -161,27 +170,6 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 			break;
 		}
 
-		size_t contentLen = 0;
-		if(!GetContentLength(contentLen))
-		{
-			errorCode = GETCONTENTLENGTH_ERROR;
-			break;
-		}
-
-		s_unContentLen = contentLen;
-
-		if (NULL == s_cDataBuf)
-		{
-			s_cDataBuf = new char[s_unContentLen + 1];
-			if (NULL == s_cDataBuf)
-			{
-				errorCode = NEWMEMORY_ERROR;
-				break;
-			}
-
-			memset(s_cDataBuf, 0x0, s_unContentLen + 1);
-		}
-
 		int recvLen = recv(s_hSocket, s_cDataBuf + s_unHasRecvContentData, s_unContentLen- s_unHasRecvContentData, 0);
 		if (recvLen < 0)
 		{
@@ -190,7 +178,14 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 		}
 		else if(0 == recvLen)
 		{
-			errorCode = SOCKCLOSE;
+			if (s_unHasRecvContentData == s_unContentLen)
+			{
+				errorCode = SUCCSEE;
+			}
+			else
+			{
+				errorCode = SOCKCLOSE;
+			}
 			break;
 		}
 
@@ -265,6 +260,16 @@ bool CHttpClient::StopSer()
 	return true;
 }
 
+void CHttpClient::StopSerOnOwn()
+{
+	CloseHandle(m_hRecvThread);
+	m_hRecvThread = NULL;
+	m_unThreadID  = 0;
+
+	FD_ZERO(&m_readSockSet);
+	m_taskidToSockInfo.clear();
+	m_bIsRuning = false;
+}
 
 bool CHttpClient::RegisterTask(unsigned taskID, IRecvInterface *recvSink)
 {
@@ -290,6 +295,23 @@ bool CHttpClient::RegisterTask(unsigned taskID, IRecvInterface *recvSink)
 
 	return bResult;
 }
+
+bool CHttpClient::cancelTask(unsigned taskID)
+{
+	bool bResult = false;
+	do 
+	{
+		AutoLock lockGuide(m_mapLock);
+		if (m_taskidToSockInfo.find(taskID) == m_taskidToSockInfo.end())
+			break;
+
+		m_taskidToSockInfo.erase(taskID);
+		bResult = true;
+
+	} while (false);
+	return bResult;
+}
+
 //example: strUrl = http://www.xxx.com:1234/123/456
 bool CHttpClient::ParseHttpUrl(std::string strUrl, std::string &strHostName, unsigned &strHostPort, std::string &strHostObj)
 {
@@ -649,7 +671,7 @@ unsigned int __stdcall CHttpClient::RecvThread(void *param)
 unsigned int __stdcall CHttpClient::RecvThread()
 {
 	fd_set tmpReadSockSet;
-	struct timeval tm = {0, 500000};
+	struct timeval tm = {0, 500000};   //500ms
 	while(true)
 	{
 		FD_ZERO(&tmpReadSockSet);
@@ -661,11 +683,11 @@ unsigned int __stdcall CHttpClient::RecvThread()
 
 		int selResult = select(0, &tmpReadSockSet, NULL, NULL, &tm);
 		if (selResult < 0)
-		{
-			//StopSerOnOwn();  暂时关闭
+		{ 
 			if (10022 == GetLastError())
 				continue;
 
+			StopSerOnOwn(); 
 			break;
 		}
 		else if(0 == selResult)
@@ -685,13 +707,59 @@ unsigned int __stdcall CHttpClient::RecvThread()
 				{
 					int errorCode = 0;
 					bool re = false;
-					if (!(sockInfo_ptr->s_bIshasRecvHttpHead))
+					if (!(sockInfo_ptr->s_bIsHasRecvHttpHead))
 					{
 						re = sockInfo_ptr->RecvHeadData(errorCode);
+						if (false == re)
+						{
+							AutoLock lockGudie(m_readSetLock);
+					
+							if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+							{
+								FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+							}
+							//通知上层,关闭任务
+							if (sockInfo_ptr->s_iSink)
+							{
+								(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
+							}
+
+							cancelTask(sockInfo_ptr->s_unTaskID);
+						}
 					}
 					else
 					{
 						re = sockInfo_ptr->RecvContentData(errorCode);
+						if (false == re)
+						{
+							AutoLock lockGudie(m_readSetLock);
+
+							if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+							{
+								FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+							}
+							//通知上层,关闭任务
+							if (sockInfo_ptr->s_iSink)
+							{
+								if (errorCode == SUCCSEE)
+									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(true, errorCode);
+								else
+									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
+							}
+
+							cancelTask(sockInfo_ptr->s_unTaskID);
+						}
+					}
+				}
+				else   //read set Data is not synchronized
+				{
+					{
+						AutoLock loskGuide(m_readSetLock);
+						if(FD_ISSET(tmpReadSockSet.fd_array[i], &m_readSetLock))
+						{
+							FD_CLR(tmpReadSockSet.fd_array[i], &m_readSetLock);
+							closesocket(tmpReadSockSet.fd_array[i]);
+						}
 					}
 				}
 
@@ -751,7 +819,7 @@ bool CHttpClient::GetDataLen(const unsigned unTaskID, unsigned int &unDataLen)
 		{
 			if (!sockInfo_ptr->s_bIsHasRecvContentData)
 				break;	
-			sockInfo_ptr->s_DataLen;
+			sockInfo_ptr->s_unContentLen;
 		}
 
 		bResult = true;

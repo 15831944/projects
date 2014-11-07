@@ -1,4 +1,5 @@
 class IRecvInterface
 {
-	virtual bool OnRecv(char *buf) = 0;
+public:
+	virtual void OnDownLoadFinish(bool bResult, int errorCode) = 0;
 };
