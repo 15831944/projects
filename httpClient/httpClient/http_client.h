@@ -17,6 +17,7 @@
 #define SUCCSEE                        0
 
 
+#define PAUSELOACTION_ERROR            -90
 #define BUILDHTTPHEAD_ERROR            -91
 #define CONNECTHTTPSER_ERROR           -92
 #define PARESHTTPURL_ERROR             -93
@@ -30,6 +31,7 @@
 
 
 #define HTTPDOWNING_INFO              -200
+#define HTTPDOWNINGREDIRECT_INFO      -201
 
 
 

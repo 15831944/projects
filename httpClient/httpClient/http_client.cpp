@@ -160,7 +160,15 @@ bool _tagSSockInfo::RecvHeadData(int &errorCode)
 				}
 				else if(302 == StateCode)
 				{
-					//??????????????????????版本2添加
+					if(GetLocationUrl())
+					{
+						errorCode = HTTPDOWNINGREDIRECT_INFO;
+					}
+					else
+					{
+						errorCode = PAUSELOACTION_ERROR;
+					}
+					break;
 				}
 				else
 				{
@@ -735,19 +743,26 @@ unsigned int __stdcall CHttpClient::RecvThread()
 						re = sockInfo_ptr->RecvHeadData(errorCode);
 						if (false == re)
 						{
-							AutoLock lockGudie(m_readSetLock);
-					
-							if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+							if (errorCode == HTTPDOWNINGREDIRECT_INFO)
 							{
-								FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+								//????????????????????添加处理函数
 							}
-							//通知上层,关闭任务
-							if (sockInfo_ptr->s_iSink)
+							else
 							{
-								(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
-							}
+								AutoLock lockGudie(m_readSetLock);
+								if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+								{
+									FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+								}
+								//通知上层,关闭任务
+								if (sockInfo_ptr->s_iSink)
+								{
+									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
+								}
 
-							cancelTask(sockInfo_ptr->s_unTaskID);
+								cancelTask(sockInfo_ptr->s_unTaskID);
+
+							}
 						}
 					}
 					else
