@@ -4,6 +4,54 @@
 
 
 //SSockInfo struct
+
+void _tagSSockInfo::RestoreInitialState()
+{
+	s_bIsHasRecvHttpHead    = false;
+	s_bIsHasRecvContentData = false;
+	s_bHttpDowning          = false;
+	s_unHasHeadLen          = 0;
+	s_unContentLen          = 0;
+	s_unHasRecvContentData  = 0;
+	s_strOrigUrl.clear();
+	s_strJumpUrl.clear();
+	s_strHeadExpand.clear();
+
+	memset(s_cHeadBuf, 0x0, 2049);
+	if (s_hSocket)
+	{
+		closesocket(s_hSocket);
+		s_hSocket = INVALID_SOCKET;
+	}
+
+	if (s_cDataBuf)
+	{
+		delete(s_cDataBuf);
+		s_cDataBuf = NULL;
+	}
+}
+
+void _tagSSockInfo::RedirectSetUp()
+{
+	s_bIsHasRecvHttpHead    = false;
+	s_bIsHasRecvContentData = false;
+	s_unHasHeadLen          = 0;
+	s_unContentLen          = 0;
+	s_unHasRecvContentData  = 0;
+
+	memset(s_cHeadBuf, 0x0, 2049);
+	if (s_hSocket)
+	{
+		closesocket(s_hSocket);
+		s_hSocket = INVALID_SOCKET;
+	}
+
+	if (s_cDataBuf)
+	{
+		delete(s_cDataBuf);
+		s_cDataBuf = NULL;
+	}
+}
 /*
 example: strAttr = "Content-Length"、"Location"
 */
@@ -224,6 +272,8 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 		if (s_unHasRecvContentData == s_unContentLen)
 		{
 			s_bIsHasRecvContentData = true;
+			errorCode = SUCCSEE;
+			break;
 		}
 		bResult = true;
 
@@ -237,6 +287,7 @@ CHttpClient::CHttpClient()
 , m_hRecvThread(NULL)
 , m_unThreadID(0)
 , m_bShutDown(false)
+, m_bRedirect(false)
 {
 	FD_ZERO(&m_readSockSet);
 }
@@ -248,7 +299,7 @@ CHttpClient::~CHttpClient()
 		if(m_hRecvThread)
 		{
 			m_bShutDown = true;
-			WaitForSingleObject(m_hRecvThread, 500);
+			WaitForSingleObject(m_hRecvThread, 1000);
 		}
 		CloseHandle(m_hRecvThread);
 		m_hRecvThread = NULL;
@@ -588,7 +639,7 @@ bool CHttpClient::Send(SSockInfo_PTR sockInfo, const char *sendBuf, unsigned sen
 		while(hasSendLen < sendLen)
 		{
 			int sndResult = send(sockInfo->s_hSocket, sendBuf + hasSendLen, sendLen - hasSendLen, 0);
-			if (sndResult < 0)
+			if (sndResult <= 0)
 			{
 				errorCode = WSAGetLastError();
 				break;
@@ -605,7 +656,7 @@ bool CHttpClient::Send(SSockInfo_PTR sockInfo, const char *sendBuf, unsigned sen
 	return bResult;
 }
 
-bool  CHttpClient::Get(const unsigned unTaskID, const std::string &strUrl, int &errorCode, const std::string &strHeadExpand/* = ""*/)
+bool  CHttpClient::Get(const unsigned unTaskID, const std::string &strUrl, int &errorCode, const std::string &strHeadExpand/* = ""*/, bool bJump/* = false*/)
 {
 	bool bResult = false;
 	do 
@@ -613,11 +664,18 @@ bool  CHttpClient::Get(const unsigned unTaskID, const std::string &strUrl, int &
 		SSockInfo_PTR taskSockInfo;
 		{
 			AutoLock lockGuide(m_mapLock);
-			if (strUrl.empty() || m_taskidToSockInfo.end() == m_taskidToSockInfo.find(unTaskID))
+			if (strUrl.empty())
 			{
-				errorCode = PARARM_ERROR;
+				errorCode = PARARM_URL_EMPTYERROR;
 				break;
 			}
+
+			if (m_taskidToSockInfo.end() == m_taskidToSockInfo.find(unTaskID))
+			{
+				errorCode = TASK_NO_REGISTER_ERROR;
+				break;
+			}
+
 			taskSockInfo = m_taskidToSockInfo.find(unTaskID)->second;
 		}
 
@@ -633,7 +691,12 @@ bool  CHttpClient::Get(const unsigned unTaskID, const std::string &strUrl, int &
 			break;
 		}
 
-		taskSockInfo->s_strOrigUrl = strUrl;
+		if(!bJump)
+		{
+			taskSockInfo->s_strOrigUrl    = strUrl;
+			taskSockInfo->s_strHeadExpand = strHeadExpand;
+		}
+
 
 		std::string strHostName;
 		unsigned    strHostPort;
@@ -653,6 +716,7 @@ bool  CHttpClient::Get(const unsigned unTaskID, const std::string &strUrl, int &
 		std::ostringstream httpHead;
 		if (!BuildSendData(httpHead, strHostName, strHostObj, strHeadExpand))
 		{
+			RecycleSockInfo(taskSockInfo);
 			errorCode = BUILDHTTPHEAD_ERROR;
 			break;
 		}
@@ -662,12 +726,28 @@ bool  CHttpClient::Get(const unsigned unTaskID, const std::string &strUrl, int &
 
 		if (bResult)
 		{
+			taskSockInfo->s_bHttpDowning = true;
 			AutoLock lockGuide(m_readSetLock);
 			FD_SET(taskSockInfo->s_hSocket, &m_readSockSet);
 		}
+		else
+			RecycleSockInfo(taskSockInfo);
+
 	} while (false);
 
 	return bResult;
+}
+
+unsigned CHttpClient::GetHttpDownloadingState(unsigned unTaskID)
+{
+	AutoLock lockGuide(m_mapLock);
+	if (m_taskidToSockInfo.find(unTaskID) == m_taskidToSockInfo.end())
+	{
+		return -1;
+	}
+
+	SSockInfo_PTR sockInfo = m_taskidToSockInfo[unTaskID];
+	return sockInfo->s_bHttpDowning;
 }
 
 
@@ -683,6 +763,15 @@ SSockInfo_PTR CHttpClient::GetSockInfoBySock(const SOCKET readSock)
 	}
 
 	return SSockInfo_PTR();
+}
+
+void CHttpClient::RecycleSockInfo(SSockInfo_PTR sockInfo_ptr)
+{
+	if (!sockInfo_ptr)
+		return;
+
+	sockInfo_ptr->RestoreInitialState();
+
 }
 
 unsigned int __stdcall CHttpClient::RecvThread(void *param)
@@ -715,6 +804,9 @@ unsigned int __stdcall CHttpClient::RecvThread()
 		int selResult = select(0, &tmpReadSockSet, NULL, NULL, &tm);
 		if (selResult < 0)
 		{ 
+			if (true == m_bShutDown)
+				break;
+
 			if (10022 == GetLastError())
 				continue;
 
@@ -743,25 +835,47 @@ unsigned int __stdcall CHttpClient::RecvThread()
 						re = sockInfo_ptr->RecvHeadData(errorCode);
 						if (false == re)
 						{
-							if (errorCode == HTTPDOWNINGREDIRECT_INFO)
+							if (m_bRedirect && errorCode == HTTPDOWNINGREDIRECT_INFO)
 							{
-								//????????????????????添加处理函数
+								sockInfo_ptr->RedirectSetUp();
+								int errorCode = 0;
+								bool bGetRes = Get(sockInfo_ptr->s_unTaskID, sockInfo_ptr->s_strJumpUrl, errorCode, sockInfo_ptr->s_strHeadExpand, true);
+								if (!bGetRes)
+								{
+									{
+										AutoLock lockGudie(m_readSetLock);
+										if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+										{
+											FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+										}
+									}
+
+									assert(sockInfo_ptr->s_iSink != NULL);
+									if (sockInfo_ptr->s_iSink)
+									{
+										(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
+									}
+
+									RecycleSockInfo(sockInfo_ptr);
+								}
 							}
 							else
 							{
-								AutoLock lockGudie(m_readSetLock);
-								if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
 								{
-									FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+									AutoLock lockGudie(m_readSetLock);
+									if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+									{
+										FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+									}
 								}
+
 								//通知上层,关闭任务
 								if (sockInfo_ptr->s_iSink)
 								{
 									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
 								}
 
-								cancelTask(sockInfo_ptr->s_unTaskID);
-
+								RecycleSockInfo(sockInfo_ptr);
 							}
 						}
 					}
@@ -770,11 +884,12 @@ unsigned int __stdcall CHttpClient::RecvThread()
 						re = sockInfo_ptr->RecvContentData(errorCode);
 						if (false == re)
 						{
-							AutoLock lockGudie(m_readSetLock);
-
-							if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
 							{
-								FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+								AutoLock lockGudie(m_readSetLock);
+								if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+								{
+									FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+								}
 							}
 							//通知上层,关闭任务
 							if (sockInfo_ptr->s_iSink)
@@ -785,7 +900,7 @@ unsigned int __stdcall CHttpClient::RecvThread()
 									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
 							}
 
-							cancelTask(sockInfo_ptr->s_unTaskID);
+							RecycleSockInfo(sockInfo_ptr);
 						}
 					}
 				}
@@ -804,6 +919,9 @@ unsigned int __stdcall CHttpClient::RecvThread()
 				if (true == m_bShutDown)
 					break;
 			}
+
+			if (true == m_bShutDown)
+				break;
 		}
 	}
 	return 0;

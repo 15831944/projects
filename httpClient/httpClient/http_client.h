@@ -16,13 +16,13 @@
 
 #define SUCCSEE                        0
 
-
+#define TASK_NO_REGISTER_ERROR         -89
 #define PAUSELOACTION_ERROR            -90
 #define BUILDHTTPHEAD_ERROR            -91
 #define CONNECTHTTPSER_ERROR           -92
 #define PARESHTTPURL_ERROR             -93
 #define INVALUE_SOCKINFOPTR_ERROR      -94
-#define PARARM_ERROR                   -95
+#define PARARM_URL_EMPTYERROR          -95
 #define SOCKCLOSE                      -96
 #define NOTINISOCKET                   -97
 #define NOTRECVFINFSHHEAD              -98
@@ -43,10 +43,13 @@
    2.支持多任务的下载；
    3.仅支持get方法；
    4.不支持内部跳转功能；
-   5.不支持chucked模式；
+   5.不支持同一任务的多次http下载任务
    6.不支持gzip格式 
-   7.不支持同一任务的多次http下载任务
-
+   7.不支持chucked模式；
+   8.不支持并行下载；
+（2）1.0.0.2：
+   1.支持内部跳转开关；(默认不支持)
+   2.支持同一任务的多次http下载任务；（这里不是并行下载的意思，在同一时刻只允许一个下载（串行下载））
 创建时间：2014.10.29
 */
 
@@ -92,6 +95,8 @@ private:
 	bool GetContentLength(size_t &len);
 	bool GetLocationUrl();
 	unsigned long GetHttpState();
+	void RestoreInitialState();
+	void RedirectSetUp();
 
 	bool RecvHeadData(int &errorCode);
 	bool RecvContentData(int &errorCode);
@@ -108,7 +113,7 @@ private:
 
 	std::string s_strOrigUrl;   //The original url
 	std::string s_strJumpUrl;	//jump url  
-
+	std::string s_strHeadExpand;
 	//{content data param
 	char      *s_cDataBuf;   //add '\0' in the string tail
 	unsigned  s_unContentLen;
@@ -132,13 +137,19 @@ public:
 	CHttpClient();
 	~CHttpClient();
 
+	//start http server
 	bool StartSer();
+	//stop http server
 	bool StopSer();
+
+
+	void SetRedirectIntenel(bool bON = false){m_bRedirect = bON;}
+	unsigned GetHttpDownloadingState(unsigned unTaskID);
 
 	bool RegisterTask(unsigned taskID, IRecvInterface *recvSink);
 	bool cancelTask(unsigned taskID);
 //	bool StopHttpdownloading(unsigned taskID);
-	bool Get(const unsigned unTaskID, const std::string &strUrl, int &errorCode, const std::string &strHeadExpand = "");
+	bool Get(const unsigned unTaskID, const std::string &strUrl, int &errorCode, const std::string &strHeadExpand = "", bool bJump = false);
 	bool GetDataBuf(const unsigned unTaskID, std::string &strData);
 	bool GetDataLen(const unsigned unTaskID, unsigned int &unDataLen);
 
@@ -159,6 +170,7 @@ private:
 	//{help function
 	SSockInfo_PTR GetSockInfoBySock(const SOCKET readSock);
     void StopSerOnOwn();
+	void RecycleSockInfo(SSockInfo_PTR sockInfo_ptr);
 	//}
 
 private:
@@ -168,6 +180,7 @@ private:
 	CLock    m_mapLock;
 	CLock    m_readSetLock;
 	bool     m_bShutDown;
+	bool     m_bRedirect;
 
 	fd_set   m_readSockSet;
 	std::map<unsigned, SSockInfo_PTR> m_taskidToSockInfo;

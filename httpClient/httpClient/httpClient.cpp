@@ -16,12 +16,18 @@ public:
 
 	}
 
-	void Get()
+	void Get(bool f)
 	{
 		int errorCode = 0;
-		
-		t->Get(1234,"http://list3.ppstream.com/cfg/ClientPolicies.xml", errorCode);
-
+		if (f)
+		{
+			t->Get(1234,"http://www.baidu.com/", errorCode);
+		}
+		else
+		{t->Get(1234,"http://list3.ppstream.com/cfg/ClientPolicies.xml", errorCode);
+		}
+		int  df = 5;
+		df++;
 	}
 	void OnDownLoadFinish(bool bResult, int errorCode)
 	{
@@ -32,7 +38,6 @@ public:
 			fd++;
 
 		}
-
 	}
 private:
 	CHttpClient *t;
@@ -43,7 +48,7 @@ int _tmain(int argc, _TCHAR* argv[])
 {
 	WSAData wd;
 	WSAStartup(MAKEWORD(2,2), &wd);
-
+	{
 	CHttpClient http;
 	http.StartSer();
 
@@ -51,8 +56,20 @@ int _tmain(int argc, _TCHAR* argv[])
 	Test t(http);
 	http.RegisterTask(1234, &t);
 
-	t.Get();
+	t.Get(true);
 
+	getchar();
+	t.Get(false);
+	getchar();
+	}
+	getchar();
+	getchar();
+	getchar();
+	getchar();
+	getchar();
+	getchar();
+	getchar();
+	getchar();
 	getchar();
 	return 0;
 }
