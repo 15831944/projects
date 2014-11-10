@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "lock.h"
 
+
 CLock::CLock(void)
 {
 #ifdef WIN32
