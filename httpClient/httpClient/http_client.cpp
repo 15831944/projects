@@ -2,7 +2,6 @@
 #include <sstream>
 #include "http_client.h" 
 
-
 //SSockInfo struct
 
 void _tagSSockInfo::RestoreInitialState()
