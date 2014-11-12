@@ -7,6 +7,9 @@ Complex_completionPort/Complex_completionPort/*.user
 httpClient/Debug/
 httpClient/httpClient/Debug/
 httpClient/httpClient/*.user
+zlib_test/Debug/
+zlib_test/zlib_test/Debug/
+zlib_test/zlib_test/*.user
 Test/
 dllTest/Debug/
 *.suo

@@ -1,0 +1,167 @@
+K 25
+svn:wc:ra_dav:version-url
+V 61
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib
+END
+inffast.h
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/inffast.h
+END
+infcodes.h
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/infcodes.h
+END
+inffixed.h
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/inffixed.h
+END
+deflate.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/deflate.c
+END
+zlib.h
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/zlib.h
+END
+zutil.c
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/zutil.c
+END
+gzio.c
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/gzio.c
+END
+deflate.h
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/deflate.h
+END
+infutil.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/infutil.c
+END
+crc32.c
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/crc32.c
+END
+zutil.h
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/zutil.h
+END
+inftrees.c
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/inftrees.c
+END
+infutil.h
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/infutil.h
+END
+inflate.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/inflate.c
+END
+trees.c
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/trees.c
+END
+uncompr.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/uncompr.c
+END
+inftrees.h
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/inftrees.h
+END
+zconf.h
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/zconf.h
+END
+infblock.c
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/infblock.c
+END
+trees.h
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/trees.h
+END
+inffast.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/inffast.c
+END
+infcodes.c
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/infcodes.c
+END
+Forcelib.h
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/Forcelib.h
+END
+example.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/example.c
+END
+compress.c
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/compress.c
+END
+infblock.h
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/infblock.h
+END
+adler32.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/vodds/!svn/ver/2/trunk/PPSCrossPlatform/baseclass/ziplib/adler32.c
+END
