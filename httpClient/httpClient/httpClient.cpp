@@ -21,10 +21,12 @@ public:
 		int errorCode = 0;
 		if (f)
 		{
+			//t->Get(1234,"zhidao.baidu.com/question/351319520.html", errorCode/*, "Accept-Encoding: gzip, deflate\r\n"*/);
 			t->Get(1234,"http://www.baidu.com/", errorCode);
 		}
 		else
-		{t->Get(1234,"http://list3.ppstream.com/cfg/ClientPolicies.xml", errorCode);
+		{
+			t->Get(1234,"http://list3.ppstream.com/cfg/ClientPolicies.xml", errorCode, "Accept-Encoding: gzip, deflate\r\n");
 		}
 		int  df = 5;
 		df++;
@@ -56,10 +58,10 @@ int _tmain(int argc, _TCHAR* argv[])
 	Test t(http);
 	http.RegisterTask(1234, &t);
 
-	t.Get(true);
+	t.Get(false);
 
 	getchar();
-	t.Get(false);
+	t.Get(true);
 	getchar();
 	}
 	getchar();

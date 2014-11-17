@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include <sstream>
 #include "http_client.h" 
+#include <new>
+#include "GZipHelper.h"
 
 //SSockInfo struct
 
@@ -9,14 +11,19 @@ void _tagSSockInfo::RestoreInitialState()
 	s_bIsHasRecvHttpHead    = false;
 	s_bIsHasRecvContentData = false;
 	s_bHttpDowning          = false;
+	s_bIsContentGzip        = false;
+	s_bIsChunkedRecvLen     = false;
 	s_unHasHeadLen          = 0;
 	s_unContentLen          = 0;
 	s_unHasRecvContentData  = 0;
+	s_unCacheHasLen           = 0;
+	s_dm                    = e_UNKNOW;
 	s_strOrigUrl.clear();
 	s_strJumpUrl.clear();
 	s_strHeadExpand.clear();
 
 	memset(s_cHeadBuf, 0x0, 2049);
+	memset(s_strCacheBuf, 0x0, 2048);
 	if (s_hSocket)
 	{
 		closesocket(s_hSocket);
@@ -34,11 +41,16 @@ void _tagSSockInfo::RedirectSetUp()
 {
 	s_bIsHasRecvHttpHead    = false;
 	s_bIsHasRecvContentData = false;
+	s_bIsContentGzip        = false;
+	s_bIsChunkedRecvLen     = false;
+	s_dm                    = e_UNKNOW;
 	s_unHasHeadLen          = 0;
 	s_unContentLen          = 0;
 	s_unHasRecvContentData  = 0;
+	s_unCacheHasLen           = 0;
 
 	memset(s_cHeadBuf, 0x0, 2049);
+	memset(s_strCacheBuf, 0x0, 2048);
 	if (s_hSocket)
 	{
 		closesocket(s_hSocket);
@@ -97,7 +109,47 @@ bool _tagSSockInfo::GetContentLength(size_t &len)
 		bResult = true;
 	} while (false);
 
-    return bResult;
+	return bResult;
+}
+
+bool _tagSSockInfo::GetContentEncodeIsGzip()
+{
+	bool bResult = false;
+	do 
+	{
+		std::string strAttrValue;
+		if(GetAttributeSection("Content-Encoding", strAttrValue))
+		{
+			std::string::size_type pos1 = strAttrValue.find(" ");
+			if (pos1 == std::string::npos)
+				break;
+
+			if(strAttrValue.substr(pos1 +1) == std::string("gzip"))
+				bResult = true;
+		}
+	} while (false);
+
+	return bResult;
+}
+
+bool _tagSSockInfo::GetContentIsTransferEncoding()
+{
+	bool bResult = false;
+	do 
+	{
+		std::string strAttrValue;
+		if(GetAttributeSection("Transfer-Encoding", strAttrValue))
+		{
+			std::string::size_type pos1 = strAttrValue.find(" ");
+			if (pos1 == std::string::npos)
+				break;
+
+			if(strAttrValue.substr(pos1 +1) == std::string("chunked"))
+				bResult = true;
+		}
+	} while (false);
+
+	return bResult;
 }
 
 bool _tagSSockInfo::GetLocationUrl()
@@ -143,6 +195,161 @@ unsigned long _tagSSockInfo::GetHttpState()
 	return httpState;
 }
 
+bool _tagSSockInfo::OnDealWithHttpHead(int &errorCode)
+{
+	bool bResult = false;
+	do 
+	{
+		if(!s_bIsHasRecvHttpHead)
+		{
+			errorCode = HTTPHEADDONOTFIN_INFO;
+			break;
+		}
+
+		unsigned long StateCode = GetHttpState();
+		if(200 == StateCode)
+		{
+			size_t contentLen = 0;
+			if(GetContentLength(contentLen))
+			{
+				s_unContentLen = contentLen;
+				s_dm           = e_CONTENTLENG;
+				if (NULL == s_cDataBuf)
+				{
+					s_cDataBuf = new(std::nothrow) char[s_unContentLen];
+					if (NULL == s_cDataBuf)
+					{
+						errorCode = NEWMEMORY_ERROR;
+						break;
+					}
+
+					memset(s_cDataBuf, 0x0, s_unContentLen);
+				}
+			}
+			else if(GetContentIsTransferEncoding())
+			{ 
+				s_dm = e_CHUNKED;
+			}
+			else
+			{
+				errorCode = GETCONTENTLENGTH_ERROR;
+				break;
+			}	
+
+			if(GetContentEncodeIsGzip())
+				s_bIsContentGzip = true;
+		}
+		else if(302 == StateCode)
+		{
+			if(GetLocationUrl())
+			{
+				errorCode = HTTPDOWNINGREDIRECT_INFO;
+			}
+			else
+			{
+				errorCode = PAUSELOACTION_ERROR;
+			}
+			break;
+		}
+		else
+		{
+			errorCode = StateCode;
+			break;
+		}
+
+		bResult = true;
+	} while (false);
+
+	return bResult;
+}
+
+bool _tagSSockInfo::OndealWithChunckData()
+{
+	while(0 < s_unCacheHasLen)
+	{
+		if(!s_bIsChunkedRecvLen)
+		{
+			std::string strCache;
+			if(s_bJumpStart)
+			{
+				if (s_unCacheHasLen < 2)
+					break;
+
+				s_unCBCurrentPos += 2;
+				strCache = s_strCacheBuf + s_unCBCurrentPos;
+				s_unCacheHasLen -= 2;  
+			}
+			else
+			{
+				strCache = s_strCacheBuf;
+				s_bJumpStart = true;
+			}
+
+			std::string::size_type pos1 = strCache.find("\r\n");
+			if (std::string::npos != pos1)
+			{
+				s_unThisRemainChunkedLen = strtoul(strCache.substr(0, pos1).c_str(), 0, 16);
+				s_bIsChunkedRecvLen = true;
+				if (0 == s_unThisRemainChunkedLen)
+				{
+					s_bDownloadingFin = true;
+					break;
+				}
+
+				if (NULL == s_cDataBuf)
+				{
+					s_cDataBuf = (char *)malloc(sizeof(char) * s_unThisRemainChunkedLen);
+					memset(s_cDataBuf, 0x0, s_unThisRemainChunkedLen);
+					s_unContentLen += s_unThisRemainChunkedLen;
+				}
+				else
+				{
+					s_cDataBuf = (char *)realloc(s_cDataBuf, s_unContentLen + s_unThisRemainChunkedLen);
+					s_unContentLen += s_unThisRemainChunkedLen;
+				}
+
+				s_unCacheHasLen -= pos1 + 2;
+				s_unCBCurrentPos += pos1 + 2;
+				assert(s_unCacheHasLen >= 0);
+			}
+			else      //not complete length
+			{
+				break;
+			}
+		}
+		else   //s_bIsChunkedRecvLen = true
+		{
+				int cpyLen = min(s_unThisRemainChunkedLen, s_unCacheHasLen);
+				memcpy(s_cDataBuf + s_unHasRecvContentData, s_strCacheBuf + s_unCBCurrentPos, cpyLen);
+				s_unCacheHasLen -= cpyLen;
+				s_unCBCurrentPos += cpyLen;
+
+				s_unThisRemainChunkedLen -= cpyLen;
+				s_unHasRecvContentData += cpyLen;
+
+				assert(s_unThisRemainChunkedLen >= 0);
+				if (0 == s_unThisRemainChunkedLen)
+					s_bIsChunkedRecvLen = false;
+		}
+	}
+
+	//完成移位操作
+	if (!s_bDownloadingFin && !s_bDownloadingFin)
+	{
+		if (0 == s_unCacheHasLen)
+		{
+			s_unCBCurrentPos = 0;
+			s_unCacheHasLen  = 0;
+		}
+		else
+		{
+			memcpy(s_strCacheBuf, s_strCacheBuf + s_unCBCurrentPos, s_unCacheHasLen);
+			s_unCBCurrentPos = 0;
+		}
+	}
+	return true;
+}
+
 bool _tagSSockInfo::RecvHeadData(int &errorCode)
 {
 	bool bResult = false;
@@ -178,50 +385,27 @@ bool _tagSSockInfo::RecvHeadData(int &errorCode)
 				s_unHasHeadLen += (pos + 4);
 				s_bIsHasRecvHttpHead = true;
 
-
-				unsigned long StateCode = GetHttpState();
-				if(200 == StateCode)
+				if(!OnDealWithHttpHead(errorCode))
 				{
-					size_t contentLen = 0;
-					if(!GetContentLength(contentLen))
+					if (HTTPHEADDONOTFIN_INFO == errorCode)
 					{
-						errorCode = GETCONTENTLENGTH_ERROR;
-						break;
+						assert(false);
 					}
+					break;
+				}
 
-					s_unContentLen = contentLen;
-					if (NULL == s_cDataBuf)
-					{
-						s_cDataBuf = new char[s_unContentLen + 1];
-						if (NULL == s_cDataBuf)
-						{
-							errorCode = NEWMEMORY_ERROR;
-							break;
-						}
-
-						memset(s_cDataBuf, 0x0, s_unContentLen + 1);
-					}
-
+				if (e_CONTENTLENG == s_dm)
+				{
 					memcpy(s_cDataBuf + s_unHasRecvContentData,  recvBuf + pos + 4, recvResult - (pos + 4));
 					s_unHasRecvContentData += recvResult - (pos + 4);
 				}
-				else if(302 == StateCode)
+				else if(e_CHUNKED == s_dm)
 				{
-					if(GetLocationUrl())
-					{
-						errorCode = HTTPDOWNINGREDIRECT_INFO;
-					}
-					else
-					{
-						errorCode = PAUSELOACTION_ERROR;
-					}
-					break;
+					memcpy(s_strCacheBuf + s_unCBCurrentPos + s_unCacheHasLen,  recvBuf + pos + 4, recvResult - (pos + 4));
+					s_unCacheHasLen += recvResult - (pos + 4);
 				}
 				else
-				{
-					errorCode = StateCode;
-					break;
-				}
+					assert(false);
 
 				bResult = true;
 			}
@@ -248,7 +432,21 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 			break;
 		}
 
-		int recvLen = recv(s_hSocket, s_cDataBuf + s_unHasRecvContentData, s_unContentLen- s_unHasRecvContentData, 0);
+		int recvLen = 0;
+		if (e_CONTENTLENG == s_dm)
+		{
+			recvLen = recv(s_hSocket, s_cDataBuf + s_unHasRecvContentData, s_unContentLen- s_unHasRecvContentData, 0);
+			s_unHasRecvContentData += recvLen;
+		}
+		else if (e_CHUNKED == s_dm)
+		{
+			OndealWithChunckData();
+			recvLen = recv(s_hSocket, s_strCacheBuf + s_unCBCurrentPos + s_unCacheHasLen, 2048- s_unCacheHasLen, 0);
+			OndealWithChunckData();
+		}
+		else
+			assert(false);
+
 		if (recvLen < 0)
 		{
 			errorCode = GetLastError();
@@ -256,8 +454,10 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 		}
 		else if(0 == recvLen)
 		{
-			if (s_unHasRecvContentData == s_unContentLen)
+			if ((s_dm == e_CONTENTLENG && s_unHasRecvContentData == s_unContentLen)
+				|| (s_dm == e_CHUNKED && true == s_bDownloadingFin))
 			{
+				s_bIsHasRecvContentData = true;
 				errorCode = SUCCSEE;
 			}
 			else
@@ -267,8 +467,9 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 			break;
 		}
 
-		s_unHasRecvContentData += recvLen;
-		if (s_unHasRecvContentData == s_unContentLen)
+
+		if ((0 != s_unContentLen && s_dm == e_CONTENTLENG && s_unHasRecvContentData == s_unContentLen)
+			|| (0 != s_unContentLen && s_dm == e_CHUNKED && true == s_bDownloadingFin))
 		{
 			s_bIsHasRecvContentData = true;
 			errorCode = SUCCSEE;
@@ -337,7 +538,7 @@ bool CHttpClient::StopSer()
 	FD_ZERO(&m_readSockSet);
 	m_taskidToSockInfo.clear();
 	m_bIsRuning = false;
- 
+
 	return true;
 }
 
@@ -781,7 +982,7 @@ unsigned int __stdcall CHttpClient::RecvThread(void *param)
 		if (NULL ==pThis)
 			break;
 		return pThis->RecvThread();
-		
+
 	} while(false);
 
 	return 0;
@@ -798,7 +999,7 @@ unsigned int __stdcall CHttpClient::RecvThread()
 			AutoLock lockGuide(m_readSetLock);
 			tmpReadSockSet = m_readSockSet;
 		}
-		
+
 
 		int selResult = select(0, &tmpReadSockSet, NULL, NULL, &tm);
 		if (selResult < 0)
@@ -883,6 +1084,7 @@ unsigned int __stdcall CHttpClient::RecvThread()
 						re = sockInfo_ptr->RecvContentData(errorCode);
 						if (false == re)
 						{
+							bool bResult = false;
 							{
 								AutoLock lockGudie(m_readSetLock);
 								if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
@@ -894,9 +1096,36 @@ unsigned int __stdcall CHttpClient::RecvThread()
 							if (sockInfo_ptr->s_iSink)
 							{
 								if (errorCode == SUCCSEE)
-									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(true, errorCode);
+								{
+									bResult = true;
+									if(sockInfo_ptr->s_bIsContentGzip)
+									{
+										//解压数据;
+										CGZIP2A * pGZip = NULL;
+										pGZip = new(std::nothrow) CGZIP2A((LPGZIP)sockInfo_ptr->s_cDataBuf,sockInfo_ptr->s_unContentLen);
+										if(NULL != pGZip)
+										{
+											//char *unComData = pGZip->psz;
+											int unComLen = pGZip->Length;
+											delete[] sockInfo_ptr->s_cDataBuf;
+											sockInfo_ptr->s_cDataBuf = new char[unComLen];
+											memset(sockInfo_ptr->s_cDataBuf, 0x0, unComLen);
+											memcpy(sockInfo_ptr->s_cDataBuf, pGZip->psz, unComLen);
+											sockInfo_ptr->s_unContentLen = unComLen;
+										}
+										else
+										{
+											errorCode = COMPRESSIONDATA_ERROR;
+											bResult = false;
+										}
+										if(NULL != pGZip)
+											delete pGZip;
+									}
+
+									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(bResult, errorCode);
+								}	
 								else
-									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(false, errorCode);
+									(sockInfo_ptr->s_iSink)->OnDownLoadFinish(bResult, errorCode);
 							}
 
 							RecycleSockInfo(sockInfo_ptr);

@@ -46,7 +46,7 @@
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="3"
-				UsePrecompiledHeader="2"
+				UsePrecompiledHeader="0"
 				WarningLevel="3"
 				DebugInformationFormat="4"
 			/>
@@ -211,6 +211,10 @@
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
 			<File
+				RelativePath=".\GZipHelper.h"
+				>
+			</File>
+			<File
 				RelativePath=".\http_client.h"
 				>
 			</File>
@@ -242,6 +246,126 @@
 			>
 			<File
 				RelativePath=".\htt[Client.rc"
+				>
+			</File>
+		</Filter>
+		<Filter
+			Name="ziplib"
+			>
+			<File
+				RelativePath=".\ziplib\adler32.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\compress.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\crc32.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\deflate.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\deflate.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\example.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					ExcludedFromBuild="true"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath=".\ziplib\Forcelib.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\gzio.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\infblock.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\infblock.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\infcodes.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\infcodes.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\inffast.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\inffast.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\inffixed.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\inflate.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\inftrees.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\inftrees.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\infutil.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\infutil.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\trees.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\trees.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\uncompr.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\zconf.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\zlib.h"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\zutil.c"
+				>
+			</File>
+			<File
+				RelativePath=".\ziplib\zutil.h"
 				>
 			</File>
 		</Filter>

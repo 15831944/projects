@@ -6,6 +6,8 @@
 #include <boost/shared_ptr.hpp>
 #include <WinSock2.h>
 #include <process.h>
+#include <list>
+#include <vector>
 #include "Interface.h"
 #include "lock.h"
 
@@ -16,6 +18,8 @@
 
 #define SUCCSEE                        0
 
+
+#define COMPRESSIONDATA_ERROR          -88
 #define TASK_NO_REGISTER_ERROR         -89
 #define PAUSELOACTION_ERROR            -90
 #define BUILDHTTPHEAD_ERROR            -91
@@ -32,6 +36,7 @@
 
 #define HTTPDOWNING_INFO              -200
 #define HTTPDOWNINGREDIRECT_INFO      -201
+#define HTTPHEADDONOTFIN_INFO         -202
 
 
 
@@ -50,7 +55,11 @@
 （2）1.0.0.2：
    1.支持内部跳转开关；(默认不支持)
    2.支持同一任务的多次http下载任务；（这里不是并行下载的意思，在同一时刻只允许一个下载（串行下载））
+（3）1.0.0.3：
+    1.支持gzip模式数据的传输
+	2.支持chucked模式
 创建时间：2014.10.29
+
 */
 
 class CHttpClient;
@@ -68,11 +77,19 @@ public:
 		, s_bIsHasRecvHttpHead(false)
 		, s_bIsHasRecvContentData(false)
 		, s_bHttpDowning(false)
+		, s_bIsContentGzip(false)
 		, s_unHasHeadLen(0)
 		, s_unContentLen(0)
 		, s_unHasRecvContentData(0)
+		, s_dm(e_UNKNOW)
+		, s_bIsChunkedRecvLen(false)
+		, s_unCacheHasLen(0)
+		, s_bJumpStart(false)
+		, s_unCBCurrentPos(0)
+		, s_bDownloadingFin(false)
 	{
 		memset(s_cHeadBuf, 0x0, 2049);
+		memset(s_strCacheBuf, 0x0, 2048);
 	}
 
 	~_tagSSockInfo()
@@ -85,7 +102,7 @@ public:
 
 		if (s_cDataBuf)
 		{
-			delete(s_cDataBuf);
+			delete[] s_cDataBuf;
 			s_cDataBuf = NULL;
 		}
 	}
@@ -93,6 +110,8 @@ private:
 
 	bool GetAttributeSection(std::string strAttr, std::string &strValue);
 	bool GetContentLength(size_t &len);
+	bool GetContentEncodeIsGzip();
+	bool GetContentIsTransferEncoding();
 	bool GetLocationUrl();
 	unsigned long GetHttpState();
 	void RestoreInitialState();
@@ -100,22 +119,39 @@ private:
 
 	bool RecvHeadData(int &errorCode);
 	bool RecvContentData(int &errorCode);
+	bool OnDealWithHttpHead(int &errorCode);
+	bool OndealWithChunckData();
 
 	//bool GetContentRange(size_t &pos, size_t &len, size_t &total);
 	
 
 private:
-	SOCKET          s_hSocket;
-	IRecvInterface  *s_iSink;
-	unsigned        s_unTaskID;
-	bool            s_bHttpDowning;
-	CLock           s_owerLock;    //暂时未使用
+	enum DONEMETHODS
+	{
+		e_UNKNOW,
+		e_CONTENTLENG,
+		e_CHUNKED
+	};
+
+private:
+
+
+
+	SOCKET            s_hSocket;
+	IRecvInterface    *s_iSink;
+	enum DONEMETHODS  s_dm;
+	unsigned          s_unTaskID;
+	bool              s_bHttpDowning;
+	bool              s_bIsContentGzip;
+	CLock             s_owerLock;    //Temporary unused
+
 
 	std::string s_strOrigUrl;   //The original url
 	std::string s_strJumpUrl;	//jump url  
 	std::string s_strHeadExpand;
+
 	//{content data param
-	char      *s_cDataBuf;   //add '\0' in the string tail
+	char      *s_cDataBuf;  
 	unsigned  s_unContentLen;
 	unsigned  s_unHasRecvContentData;
 	bool      s_bIsHasRecvContentData;
@@ -123,8 +159,25 @@ private:
 
 	//{http response head data param
 	char      s_cHeadBuf[2049];     ////add '\0' in the string tail, s_cHeadBuf[2048] = '\0'
-	unsigned  s_unHasHeadLen;  
-	bool      s_bIsHasRecvHttpHead;
+	unsigned  s_unHasHeadLen;          //include /r/n/r/n
+	bool      s_bIsHasRecvHttpHead;   //include /r/n/r/n
+	//}
+
+	//{chuncked model
+	char                     s_strCacheBuf[2048];
+	unsigned                 s_unCacheHasLen;
+	unsigned                 s_unThisRemainChunkedLen;
+	bool                     s_bIsChunkedRecvLen;
+	unsigned                 s_unCBCurrentPos;
+	bool                     s_bJumpStart;
+	bool                     s_bDownloadingFin;
+
+
+	unsigned                 s_unCacheBufStartPos;
+	
+	
+	
+    
 	//}
 }SSockInfo, *PSSockInfo;
 
