@@ -21,7 +21,7 @@ public:
 		int errorCode = 0;
 		if (f)
 		{
-			//t->Get(1234,"zhidao.baidu.com/question/351319520.html", errorCode/*, "Accept-Encoding: gzip, deflate\r\n"*/);
+			//t->Get(1234,"zhidao.baidu.com/question/351319520.html", errorCode, "Accept-Encoding: gzip, deflate\r\n");
 			t->Get(1234,"http://www.baidu.com/", errorCode);
 		}
 		else
@@ -36,9 +36,9 @@ public:
 		std::string data;
 		if(t->GetDataBuf(1234, data))
 		{
-			int fd = 0;
+			unsigned int fd = 0; 
+			t->GetDataLen(1234, fd);
 			fd++;
-
 		}
 	}
 private:

@@ -8,16 +8,20 @@
 
 void _tagSSockInfo::RestoreInitialState()
 {
-	s_bIsHasRecvHttpHead    = false;
-	s_bIsHasRecvContentData = false;
-	s_bHttpDowning          = false;
-	s_bIsContentGzip        = false;
-	s_bIsChunkedRecvLen     = false;
-	s_unHasHeadLen          = 0;
-	s_unContentLen          = 0;
-	s_unHasRecvContentData  = 0;
+	s_bIsHasRecvHttpHead      = false;
+	s_bIsHasRecvContentData   = false;
+	s_bHttpDowning            = false;
+	s_bIsContentGzip          = false;
+	s_bIsChunkedRecvLen       = false;
+	s_bJumpStart              = false;
+	s_bDownloadingFin         = false;
+	s_unHasHeadLen            = 0;
+	s_unContentLen            = 0;
+	s_unHasRecvContentData    = 0;
 	s_unCacheHasLen           = 0;
-	s_dm                    = e_UNKNOW;
+	s_unThisRemainChunkedLen  = 0;
+	s_unCBCurrentPos          = 0;
+	s_dm                      = e_UNKNOW;
 	s_strOrigUrl.clear();
 	s_strJumpUrl.clear();
 	s_strHeadExpand.clear();
@@ -32,25 +36,31 @@ void _tagSSockInfo::RestoreInitialState()
 
 	if (s_cDataBuf)
 	{
-		delete(s_cDataBuf);
+		free(s_cDataBuf);
 		s_cDataBuf = NULL;
 	}
 }
 
 void _tagSSockInfo::RedirectSetUp()
 {
-	s_bIsHasRecvHttpHead    = false;
-	s_bIsHasRecvContentData = false;
-	s_bIsContentGzip        = false;
-	s_bIsChunkedRecvLen     = false;
-	s_dm                    = e_UNKNOW;
-	s_unHasHeadLen          = 0;
-	s_unContentLen          = 0;
-	s_unHasRecvContentData  = 0;
+	s_bIsHasRecvHttpHead      = false;
+	s_bIsHasRecvContentData   = false;
+	s_bIsContentGzip          = false;
+	s_bIsChunkedRecvLen       = false;
+	s_bJumpStart              = false;
+	s_bDownloadingFin         = false;
+	s_dm                      = e_UNKNOW;
+	s_unHasHeadLen            = 0;
+	s_unContentLen            = 0;
+	s_unHasRecvContentData    = 0;
 	s_unCacheHasLen           = 0;
+	s_unThisRemainChunkedLen  = 0;
+	s_unCBCurrentPos          = 0;
 
 	memset(s_cHeadBuf, 0x0, 2049);
 	memset(s_strCacheBuf, 0x0, 2048);
+
+
 	if (s_hSocket)
 	{
 		closesocket(s_hSocket);
@@ -59,7 +69,7 @@ void _tagSSockInfo::RedirectSetUp()
 
 	if (s_cDataBuf)
 	{
-		delete(s_cDataBuf);
+		free(s_cDataBuf);
 		s_cDataBuf = NULL;
 	}
 }
@@ -216,7 +226,7 @@ bool _tagSSockInfo::OnDealWithHttpHead(int &errorCode)
 				s_dm           = e_CONTENTLENG;
 				if (NULL == s_cDataBuf)
 				{
-					s_cDataBuf = new(std::nothrow) char[s_unContentLen];
+					s_cDataBuf = (char *)malloc(sizeof(char) * s_unContentLen);
 					if (NULL == s_cDataBuf)
 					{
 						errorCode = NEWMEMORY_ERROR;
@@ -247,7 +257,7 @@ bool _tagSSockInfo::OnDealWithHttpHead(int &errorCode)
 			}
 			else
 			{
-				errorCode = PAUSELOACTION_ERROR;
+				errorCode = PARSELOACTION_ERROR;
 			}
 			break;
 		}
@@ -272,7 +282,7 @@ bool _tagSSockInfo::OndealWithChunckData()
 			std::string strCache;
 			if(s_bJumpStart)
 			{
-				if (s_unCacheHasLen < 2)
+				if (s_unCacheHasLen <= 2)
 					break;
 
 				s_unCBCurrentPos += 2;
@@ -314,6 +324,11 @@ bool _tagSSockInfo::OndealWithChunckData()
 			}
 			else      //not complete length
 			{
+				if(s_bJumpStart)
+				{
+					s_unCBCurrentPos -= 2;
+					s_unCacheHasLen  += 2;  
+				}
 				break;
 			}
 		}
@@ -442,6 +457,7 @@ bool _tagSSockInfo::RecvContentData(int &errorCode)
 		{
 			OndealWithChunckData();
 			recvLen = recv(s_hSocket, s_strCacheBuf + s_unCBCurrentPos + s_unCacheHasLen, 2048- s_unCacheHasLen, 0);
+			s_unCacheHasLen += recvLen;
 			OndealWithChunckData();
 		}
 		else
@@ -1037,6 +1053,14 @@ unsigned int __stdcall CHttpClient::RecvThread()
 						{
 							if (m_bRedirect && errorCode == HTTPDOWNINGREDIRECT_INFO)
 							{
+								{
+									AutoLock lockGudie(m_readSetLock);
+									if(FD_ISSET(sockInfo_ptr->s_hSocket, &m_readSockSet))
+									{
+										FD_CLR(sockInfo_ptr->s_hSocket, &m_readSockSet);
+									}
+								}
+
 								sockInfo_ptr->RedirectSetUp();
 								int errorCode = 0;
 								bool bGetRes = Get(sockInfo_ptr->s_unTaskID, sockInfo_ptr->s_strJumpUrl, errorCode, sockInfo_ptr->s_strHeadExpand, true);
@@ -1107,8 +1131,9 @@ unsigned int __stdcall CHttpClient::RecvThread()
 										{
 											//char *unComData = pGZip->psz;
 											int unComLen = pGZip->Length;
-											delete[] sockInfo_ptr->s_cDataBuf;
-											sockInfo_ptr->s_cDataBuf = new char[unComLen];
+											free(sockInfo_ptr->s_cDataBuf);
+											sockInfo_ptr->s_cDataBuf = NULL;
+											sockInfo_ptr->s_cDataBuf = (char *)malloc(sizeof(char) * unComLen);
 											memset(sockInfo_ptr->s_cDataBuf, 0x0, unComLen);
 											memcpy(sockInfo_ptr->s_cDataBuf, pGZip->psz, unComLen);
 											sockInfo_ptr->s_unContentLen = unComLen;
@@ -1203,7 +1228,7 @@ bool CHttpClient::GetDataLen(const unsigned unTaskID, unsigned int &unDataLen)
 		{
 			if (!sockInfo_ptr->s_bIsHasRecvContentData)
 				break;	
-			sockInfo_ptr->s_unContentLen;
+			unDataLen = sockInfo_ptr->s_unContentLen;
 		}
 
 		bResult = true;

@@ -21,7 +21,7 @@
 
 #define COMPRESSIONDATA_ERROR          -88
 #define TASK_NO_REGISTER_ERROR         -89
-#define PAUSELOACTION_ERROR            -90
+#define PARSELOACTION_ERROR            -90
 #define BUILDHTTPHEAD_ERROR            -91
 #define CONNECTHTTPSER_ERROR           -92
 #define PARESHTTPURL_ERROR             -93
@@ -87,6 +87,7 @@ public:
 		, s_bJumpStart(false)
 		, s_unCBCurrentPos(0)
 		, s_bDownloadingFin(false)
+		, s_unThisRemainChunkedLen(0)
 	{
 		memset(s_cHeadBuf, 0x0, 2049);
 		memset(s_strCacheBuf, 0x0, 2048);
@@ -102,7 +103,7 @@ public:
 
 		if (s_cDataBuf)
 		{
-			delete[] s_cDataBuf;
+			free(s_cDataBuf);
 			s_cDataBuf = NULL;
 		}
 	}
@@ -171,13 +172,6 @@ private:
 	unsigned                 s_unCBCurrentPos;
 	bool                     s_bJumpStart;
 	bool                     s_bDownloadingFin;
-
-
-	unsigned                 s_unCacheBufStartPos;
-	
-	
-	
-    
 	//}
 }SSockInfo, *PSSockInfo;
 
