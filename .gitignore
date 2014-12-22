@@ -10,6 +10,9 @@ httpClient/httpClient/*.user
 zlib_test/Debug/
 zlib_test/zlib_test/Debug/
 zlib_test/zlib_test/*.user
+chrome/Debug/
+chrome/chrome/Debug/
+chrome/chrome/*.user
 Test/
 dllTest/Debug/
 *.suo
