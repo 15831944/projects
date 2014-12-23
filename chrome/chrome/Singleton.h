@@ -29,7 +29,7 @@ public:
 	static obj_type& Instance()
 	{
 		static obj_type obj;
- 		create_object.do_nothing();
+ 		create_object.do_nothing();   //可能是因为延迟构造的原因
 		return obj;
 	}
 

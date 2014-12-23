@@ -43,6 +43,7 @@
 #include "singleton.h"
 #include "vld.h"
 #include "UnhandleException.h"
+#include "PublicMethod.h"
 
 #pragma pack(2)
 struct abc
@@ -71,8 +72,12 @@ private:
 
 int main()
 {
-	int g = 3;
-	int gg = g / (g - 3);
+	//int g = 3;
+	//int gg = g / (g - 3);
+
+
+	//std::string ff = "    ffffffDds     ";
+	//bool g = CStringMethod::IsAllLower(CStringMethod::StringTrim(ff));
 
 	CTest &t = CTest::Instance();
 	CTest *pt1 = CTest::PInstance();
