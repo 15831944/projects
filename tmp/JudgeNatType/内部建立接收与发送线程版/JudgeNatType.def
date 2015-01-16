@@ -1,0 +1,5 @@
+LIBRARY	"JudgeNatType"
+
+EXPORTS
+CreateJudgeNatTypeClass
+FreeJudgeNatTypeClass
