@@ -40,7 +40,7 @@ public:
 };
 
 template <class T>
-typename Singleton<T>::object_create
+typename Singleton<T>::object_create    //这里是在模板定义内部指定类型的注意地方
 Singleton<T>::create_object;
 
 #endif

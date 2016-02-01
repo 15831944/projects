@@ -41,9 +41,20 @@
 #include <stdio.h>
 #include <iostream>
 #include "singleton.h"
-#include "vld.h"
+//#include "vld.h"
 #include "UnhandleException.h"
 #include "PublicMethod.h"
+#include "compiler_specific.h"
+#include "macro_function.h"
+#include "basictypes.h"
+#include "convertcode.h"
+#include <stdlib.h>
+#include "StunServer.h"
+#include <string>
+#include "RegisterOperator.h"
+#include "rand.h"
+
+#include "inet_pton.h"
 
 #pragma pack(2)
 struct abc
@@ -70,12 +81,68 @@ private:
 
 };
 
+
+class B;
+class A
+{
+public:
+	A(B *b):m_b(b){}
+private:
+	B *m_b;
+};
+
+class B
+{
+public:
+	B():ALLOW_THIS_IN_INITIALIZER_LIST(m_a(this)){}
+private:
+	A m_a;
+};
+
+using namespace BaseClassLibrary;
+
+
 int main()
 {
+	char dd[100] = {0};
+
+
+	Curl_inet_pton(AF_INET, "10.0.0.1", dd);
+	//redisSrand48(GetTickCount());
+	//int gg = redisLrand48();
+
+	//CStunServer ser;
+	//bool ff= ser.Start("10.0.0.1", "10.0.0.2");
+
+// 	HKEY rootKey= HKEY_CURRENT_USER;
+// 	//std::string subKey = "PPStream.FDS";
+// 	std::string subKey = "zhonghao";
+// 
+// 	std::string strValue;
+// 	DWORD dwType = 0;
+// 
+// 	//CRegisterOper::GetRegValue(rootKey, subKey, "ipt", strValue, dwType);
+// 	strValue = "23456";
+// 	CRegisterOper::SetRegValue(rootKey, subKey, "ipt", strValue, REG_SZ);
+
+
+
+
+
+	unsigned long dfdf[4] = {0};
+	CExeRef::GetCurrentExeVer("C:\\Program Files (x86)\\IQIYI_PPS\\iQIYI\\QiyiClient.exe", dfdf, 4);
+
+
+	CConvertCode::UTF8ToUnicode("sdf", 4);
+	std::wstring strUnicode = L"asdf";
+
+	std::wstring strUnicode2 = L"asdf";
+	CConvertCode::UnicodeToUTF8(strUnicode2, strUnicode2.length());
+
 	//int g = 3;
 	//int gg = g / (g - 3);
 
-
+	int64 fsf = 100000000i64;
 	//std::string ff = "    ffffffDds     ";
 	//bool g = CStringMethod::IsAllLower(CStringMethod::StringTrim(ff));
 

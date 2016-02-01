@@ -29,4 +29,8 @@ T (&ArrayMemSizeHelper(T (&array)[N]))[N];
 	TypeName(const TypeName&);             \
 	TypeName& operator=(const TypeName&);
 
+
 #endif  //MACROFUNCTION_H
+
+
+

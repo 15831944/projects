@@ -610,7 +610,10 @@ bool CHttpClient::cancelTask(unsigned taskID)
 	return bResult;
 }
 
-//example: strUrl = http://www.xxx.com:1234/123/456
+//example: strUrl = http://list3.ppstream.com:8080/cfg/ClientPolicies.xml
+//strHostObj  = /cfg/ClientPolicies.xml
+//strHostPort = 8080
+//strHostName = list3.ppstream.com
 bool CHttpClient::ParseHttpUrl(std::string strUrl, std::string &strHostName, unsigned &strHostPort, std::string &strHostObj)
 {
 	bool bResult = false;
