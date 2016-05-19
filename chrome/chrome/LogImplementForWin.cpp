@@ -170,7 +170,9 @@ bool CLogImpleForWin::PrintLog(const char* cszFileName, eLogLevel emLevel, const
 				absPath = m_strDirPath + cszFileName + ".log";
 			else
 				absPath = m_strDirPath + '\\' + cszFileName + ".log";
-			FILE *fp = fopen(absPath.c_str(), "ab+");
+			//FILE *fp = fopen(absPath.c_str(), "ab+");
+			FILE *fp = NULL;
+			fp = _fsopen(absPath.c_str(), "ab+", _SH_DENYNO);
 			if(!fp)
 				break;
 
@@ -178,6 +180,7 @@ bool CLogImpleForWin::PrintLog(const char* cszFileName, eLogLevel emLevel, const
 			fputs(strOut.c_str(), fp);
 		}
 
+		fflush(m_mapFileNameToFileObj[cszFileName]);
 		bResult = true;
 	} while (false);
 
